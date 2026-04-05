@@ -56,6 +56,8 @@ pnpm dev
 - Files are verified using SHA-256 hashes
 - Optional PIN protection for app access
 
+## Build With Minimax M2.7
+
 ## License
 
 MIT License - feel free to use this project for any purpose.
