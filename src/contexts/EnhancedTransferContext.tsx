@@ -17,13 +17,14 @@ interface TransferContextType {
   selectedFiles: SelectedFile[]; addFiles: (files: FileList | File[], options?: { compress?: boolean; quality?: string }) => Promise<void>;
   removeFile: (id: string) => void; clearFiles: () => void; previewFile: (id: string) => void; processedFiles: Map<string, ProcessedFile>;
   transfers: Transfer[]; sendFiles: () => Promise<void>; pauseTransfer: (id: string) => void; resumeTransfer: (id: string) => void; cancelTransfer: (id: string) => void;
-  transferHistory: TransferRecord[]; loadTransferHistory: () => Promise<void>; clearTransferHistory: () => Promise<void>;
+  transferHistory: TransferRecord[]; loadTransferHistory: () => Promise<void>; clearTransferHistory: () => Promise<void>; clearCompletedTransfers: () => void;
   settings: AppSettingsState; updateSettings: (settings: Partial<AppSettingsState>) => void; loadSettings: () => Promise<void>;
   statistics: Statistics; loadStatistics: () => Promise<void>;
   isPinVerified: boolean; setPinVerified: (verified: boolean) => void; verifyPin: (pin: string) => boolean; setPin: (pin: string) => void; disablePin: () => void;
   notificationsEnabled: boolean; requestNotificationPermission: () => Promise<boolean>;
   toasts: Toast[]; addToast: (toast: Omit<Toast, 'id'>) => void; removeToast: (id: string) => void;
   isScanning: boolean; startScanning: () => void; stopScanning: () => void;
+  removeSavedDevice: (id: string) => void; toggleFavoriteDevice: (id: string) => void; renameDevice: (id: string, name: string) => void;
 }
 const TransferContext = createContext<TransferContextType | null>(null);
 const defaultSettings: AppSettingsState = { pinEnabled: false, pin: '', autoAccept: false, theme: 'dark', defaultQuality: 'original', compressionEnabled: false, notifications: false, soundEnabled: true, vibrationEnabled: true, maxConcurrentTransfers: 3, chunkSize: 262144, showDetailedStats: true, deviceNickname: '' };
@@ -63,6 +64,11 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
   const loadSavedDevices = useCallback(async () => { const devices = await storageService.getRecentDevices(20); setSavedDevices(devices); }, []);
   const loadTransferHistory = useCallback(async () => { const history = await storageService.getRecentTransfers(100); setTransferHistory(history); }, []);
   const clearTransferHistory = useCallback(async () => { await storageService.clearTransferHistory(); setTransferHistory([]); }, []);
+  const clearCompletedTransfers = useCallback(() => { setTransfers(prev => prev.filter(t => t.status !== 'complete')); }, []);
+  
+  const removeSavedDevice = useCallback((id: string) => { storageService.deleteDevice(id); setSavedDevices(prev => prev.filter(d => d.id !== id)); }, []);
+  const toggleFavoriteDevice = useCallback((id: string) => { setSavedDevices(prev => prev.map(d => d.id === id ? { ...d, isFavorite: !d.isFavorite } : d)); }, []);
+  const renameDevice = useCallback((id: string, name: string) => { setSavedDevices(prev => prev.map(d => d.id === id ? { ...d, name } : d)); }, []);
 
   useEffect(() => {
     signalingService.start({
@@ -172,7 +178,7 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
   const stopScanning = useCallback(() => { setIsScanning(false); }, []);
 
   return (
-    <TransferContext.Provider value={{ localId, localName, setLocalName, devices, savedDevices, selectedDevice, setSelectedDevice, connectToDevice, disconnectDevice, selectedFiles, addFiles, removeFile, clearFiles, previewFile, processedFiles, transfers, sendFiles, pauseTransfer, resumeTransfer, cancelTransfer, transferHistory, loadTransferHistory, clearTransferHistory, settings, updateSettings, loadSettings, statistics, loadStatistics, isPinVerified, setPinVerified: setIsPinVerified, verifyPin, setPin, disablePin, notificationsEnabled, requestNotificationPermission, toasts, addToast, removeToast, isScanning, startScanning, stopScanning }}>
+    <TransferContext.Provider value={{ localId, localName, setLocalName, devices, savedDevices, selectedDevice, setSelectedDevice, connectToDevice, disconnectDevice, selectedFiles, addFiles, removeFile, clearFiles, previewFile, processedFiles, transfers, sendFiles, pauseTransfer, resumeTransfer, cancelTransfer, transferHistory, loadTransferHistory, clearTransferHistory, clearCompletedTransfers, settings, updateSettings, loadSettings, statistics, loadStatistics, isPinVerified, setPinVerified: setIsPinVerified, verifyPin, setPin, disablePin, notificationsEnabled, requestNotificationPermission, toasts, addToast, removeToast, isScanning, startScanning, stopScanning, removeSavedDevice, toggleFavoriteDevice, renameDevice }}>
       {children}
     </TransferContext.Provider>
   );

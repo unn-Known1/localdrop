@@ -84,8 +84,8 @@ class ChunkWorkerManager {
         pending.resolve(undefined);
         break;
       case 'error':
-        pending.reject(new Error(error));
-        if (pending.onError) pending.onError(error);
+        pending.reject(new Error(error || 'Unknown error'));
+        if (pending.onError) pending.onError(error || 'Unknown error');
         break;
     }
     
@@ -171,7 +171,11 @@ class ChunkWorkerManager {
     this.worker!.onmessage = (e: MessageEvent<ChunkResponse>) => {
       const { type, id: msgId, data } = e.data;
       if (msgId !== id) {
-        if (originalOnMessage) originalOnMessage(e);
+        if (originalOnMessage) {
+          // Capture the original handler and call it with proper context
+          const handler = originalOnMessage as (ev: MessageEvent) => void;
+          if (handler) handler(e);
+        }
         return;
       }
       
