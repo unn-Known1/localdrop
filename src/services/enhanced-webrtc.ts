@@ -15,6 +15,7 @@ class EnhancedWebRTC {
   private callbacks: Map<string, TransferCallback> = new Map();
   private localId: string = '';
   private localName: string = '';
+  private activeReceiveFileId: string | null = null;
 
   constructor() { const info = signalingService.getLocalInfo(); this.localId = info.id; this.localName = info.name; }
   private async hashChunk(data: ArrayBuffer): Promise<string> { const hashBuffer = await crypto.subtle.digest('SHA-256', data); const hashArray = Array.from(new Uint8Array(hashBuffer)); return hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); }
@@ -83,26 +84,27 @@ class EnhancedWebRTC {
     const state: TransferState = { fileId: message.fileId, fileName: message.fileName, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'download' };
     this.transferStates.set(message.fileId, state);
     this.callbacks.get(deviceId)?.onProgress?.(state);
+    this.activeReceiveFileId = message.fileId;
   }
 
   private async handleBinaryChunk(data: ArrayBuffer, deviceId: string) {
-    for (const [fileId, fileInfo] of this.pendingFiles) {
-      const received = this.receivedChunks.get(fileId);
-      if (received && received.length < fileInfo.totalChunks) {
-        received.push(data);
-        const progress = (received.length / fileInfo.totalChunks) * 100;
-        const state = this.transferStates.get(fileId);
-        if (state) {
-          state.progress = progress;
-          state.receivedChunks.push({ fileId, chunkIndex: received.length - 1, received: true });
-          const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000;
-          state.speed = (received.length * CHUNK_SIZE) / elapsed;
-          this.callbacks.get(deviceId)?.onProgress?.(state);
-        }
-        const peer = this.peers.get(deviceId);
-        peer?.dataChannel?.send(JSON.stringify({ type: 'chunk-ack', fileId, chunkIndex: received.length - 1 }));
-        break;
+    if (!this.activeReceiveFileId) return;
+    const fileId = this.activeReceiveFileId;
+    const received = this.receivedChunks.get(fileId);
+    const fileInfo = this.pendingFiles.get(fileId);
+    if (received && fileInfo && received.length < fileInfo.totalChunks) {
+      received.push(data);
+      const progress = (received.length / fileInfo.totalChunks) * 100;
+      const state = this.transferStates.get(fileId);
+      if (state) {
+        state.progress = progress;
+        state.receivedChunks.push({ fileId, chunkIndex: received.length - 1, received: true });
+        const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000;
+        state.speed = (received.length * CHUNK_SIZE) / elapsed;
+        this.callbacks.get(deviceId)?.onProgress?.(state);
       }
+      const peer = this.peers.get(deviceId);
+      peer?.dataChannel?.send(JSON.stringify({ type: 'chunk-ack', fileId, chunkIndex: received.length - 1 }));
     }
   }
 
@@ -124,37 +126,43 @@ class EnhancedWebRTC {
           this.callbacks.get(deviceId)?.onComplete?.(fileId, file);
         }
       } else { state.status = 'failed'; state.error = 'File verification failed'; this.callbacks.get(deviceId)?.onError?.(fileId, 'File verification failed'); }
-      this.callbacks.get(deviceId)?.onProgress?.(state);
-      this.callbacks.get(deviceId)?.onVerificationComplete?.(fileId, verified);
-      setTimeout(() => { this.cleanup(fileId); }, 5000);
+        this.callbacks.get(deviceId)?.onProgress?.(state);
+        this.callbacks.get(deviceId)?.onVerificationComplete?.(fileId, verified);
+        this.activeReceiveFileId = null;
+        setTimeout(() => { this.cleanup(fileId); }, 5000);
     }
   }
 
   private handleFilePause(message: any) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'paused'; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
   private handleFileResume(message: any) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'transferring'; state.startTime = Date.now(); this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
   private handleChunkAck(message: any) { const state = this.transferStates.get(message.fileId); if (state && state.direction === 'upload') { const ackIndex = message.chunkIndex; state.progress = ((ackIndex + 1) / state.totalChunks) * 100; const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000; state.speed = ((ackIndex + 1) * CHUNK_SIZE) / elapsed; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
-  private handleFileCancel(message: any) { this.cleanup(message.fileId); }
+  private handleFileCancel(message: any) { 
+    if (this.activeReceiveFileId === message.fileId) {
+      this.activeReceiveFileId = null;
+    }
+    this.cleanup(message.fileId); 
+  }
 
-  async sendFile(file: File, deviceId: string): Promise<string> {
+  async sendFile(file: File, deviceId: string, fileId?: string): Promise<string> {
     const peer = this.peers.get(deviceId);
     if (!peer?.dataChannel || peer.dataChannel.readyState !== 'open') throw new Error('Peer not connected');
-    const fileId = Math.random().toString(36).substring(2, 15);
+    const id = fileId || Math.random().toString(36).substring(2, 15);
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const arrayBuffer = await file.arrayBuffer();
     const hash = await this.hashChunk(arrayBuffer);
-    const state: TransferState = { fileId, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'upload' };
-    this.transferStates.set(fileId, state);
-    peer.dataChannel.send(JSON.stringify({ type: 'file-info', fileId, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, hash }));
+    const state: TransferState = { fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'upload' };
+    this.transferStates.set(id, state);
+    peer.dataChannel.send(JSON.stringify({ type: 'file-info', fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, hash }));
     let offset = 0;
     for (let i = 0; i < totalChunks; i++) {
-      const currentState = this.transferStates.get(fileId);
-      if (currentState?.status === 'paused') await new Promise<void>(resolve => { const checkResume = setInterval(() => { const s = this.transferStates.get(fileId); if (s?.status === 'transferring') { clearInterval(checkResume); resolve(); } }, 100); });
+      const currentState = this.transferStates.get(id);
+      if (currentState?.status === 'paused') await new Promise<void>(resolve => { const checkResume = setInterval(() => { const s = this.transferStates.get(id); if (s?.status === 'transferring') { clearInterval(checkResume); resolve(); } }, 100); });
       const start = i * CHUNK_SIZE; const end = Math.min(start + CHUNK_SIZE, file.size);
-      peer.dataChannel.send(JSON.stringify({ type: 'file-chunk', fileId, fileName: file.name, fileSize: file.size, fileType: file.type, chunkIndex: i, totalChunks }));
+      peer.dataChannel.send(JSON.stringify({ type: 'file-chunk', fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, chunkIndex: i, totalChunks }));
       peer.dataChannel.send(arrayBuffer.slice(start, end));
     }
-    peer.dataChannel.send(JSON.stringify({ type: 'file-complete', fileId }));
-    return fileId;
+    peer.dataChannel.send(JSON.stringify({ type: 'file-complete', fileId: id }));
+    return id;
   }
 
   pauseTransfer(fileId: string) { const state = this.transferStates.get(fileId); if (state) { state.status = 'paused'; this.peers.get(state.deviceId)?.dataChannel?.send(JSON.stringify({ type: 'file-pause', fileId })); } }

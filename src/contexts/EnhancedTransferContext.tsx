@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { signalingService, Device as SignalingDevice } from '../services/signaling';
-import { enhancedWebRTC, TransferState } from '../services/enhanced-webrtc';
+import { enhancedWebRTC } from '../services/enhanced-webrtc';
 import { storageService, StoredDevice, TransferRecord, AppSettings, Statistics } from '../services/storage';
 import { notificationService } from '../services/notifications';
 import { fileProcessor, ProcessedFile } from '../services/fileProcessor';
 
 export interface Device { id: string; name: string; type: 'mobile' | 'desktop'; status: 'discovered' | 'connecting' | 'connected' | 'disconnected'; nickname?: string; isFavorite?: boolean; signalStrength?: number; lastConnected?: number; }
 export interface SelectedFile { id: string; file: File; thumbnail?: string; size: number; type: string; width?: number; height?: number; duration?: number; processed?: ProcessedFile; }
-export interface Transfer { id: string; fileName: string; fileSize: number; fileType: string; direction: 'upload' | 'download'; status: 'pending' | 'queued' | 'transferring' | 'paused' | 'complete' | 'failed' | 'verifying'; progress: number; speed: number; deviceId?: string; deviceName?: string; error?: string; verified?: boolean; startedAt?: number; completedAt?: number; }
+export interface Transfer { id: string; fileName: string; fileSize: number; fileType: string; direction: 'upload' | 'download'; status: 'pending' | 'queued' | 'transferring' | 'paused' | 'complete' | 'failed' | 'verifying'; progress: number; speed: number; deviceId?: string; deviceName?: string; error?: string; verified?: boolean; startedAt?: number; completedAt?: number; thumbnail?: string; }
 export interface AppSettingsState extends AppSettings { deviceNickname: string; }
 interface Toast { id: string; type: 'success' | 'error' | 'warning' | 'info'; message: string; duration?: number; }
 interface TransferContextType {
@@ -99,11 +99,46 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
     if (!selectedDevice || selectedDevice.status !== 'connected') { addToast({ type: 'error', message: 'No device connected' }); return; }
     if (selectedFiles.length === 0) { addToast({ type: 'warning', message: 'No files selected' }); return; }
     if (settings.pinEnabled && !isPinVerified) { addToast({ type: 'warning', message: 'Enter PIN first' }); return; }
+    const transferIdToFileId = new Map<string, string>();
+    const deviceId = selectedDevice.id;
+    enhancedWebRTC.registerCallback(deviceId, {
+      onProgress: (state) => {
+        const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === state.fileId)?.[0];
+        if (transferId) {
+          setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: state.status as Transfer['status'], progress: state.progress, speed: state.speed } : t));
+        }
+      },
+      onComplete: (fileId, file) => {
+        const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === fileId)?.[0];
+        if (transferId) {
+          setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: 'complete', progress: 100, completedAt: Date.now() } : t));
+          addToast({ type: 'success', message: `Sent: ${file.name}` });
+        }
+      },
+      onError: (fileId, error) => {
+        const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === fileId)?.[0];
+        if (transferId) {
+          setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: 'failed', error } : t));
+        }
+      },
+      onVerificationComplete: (fileId, verified) => {
+        const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === fileId)?.[0];
+        if (transferId) {
+          setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, verified } : t));
+        }
+      },
+    });
     for (const selectedFile of selectedFiles) {
       const transferId = Math.random().toString(36).substring(2, 15);
+      transferIdToFileId.set(transferId, transferId);
       const transfer: Transfer = { id: transferId, fileName: selectedFile.file.name, fileSize: selectedFile.size, fileType: selectedFile.type, direction: 'upload', status: 'transferring', progress: 0, speed: 0, deviceId: selectedDevice.id, deviceName: selectedDevice.name, startedAt: Date.now(), thumbnail: selectedFile.thumbnail };
       setTransfers(prev => [...prev, transfer]);
-      try { await enhancedWebRTC.sendFile(selectedFile.file, selectedDevice.id); } catch { setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: 'failed', error: 'Transfer failed' } : t)); addToast({ type: 'error', message: `Failed to send ${selectedFile.file.name}` }); }
+      try {
+        await enhancedWebRTC.sendFile(selectedFile.file, deviceId, transferId);
+      } catch {
+        setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: 'failed', error: 'Transfer failed' } : t));
+        addToast({ type: 'error', message: `Failed to send ${selectedFile.file.name}` });
+      }
     }
     clearFiles();
   }, [selectedDevice, selectedFiles, settings.pinEnabled, isPinVerified, addToast, clearFiles]);
