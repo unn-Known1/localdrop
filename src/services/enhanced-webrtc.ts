@@ -1,6 +1,6 @@
 // Enhanced WebRTC Service with Chunked Transfer, Pause/Resume, and Hash Verification
 import { signalingService, Device } from './signaling';
-const CHUNK_SIZE = 65536;
+const CHUNK_SIZE = 262144;
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }];
 export interface FileInfo { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; hash?: string; }
 export interface ChunkProgress { fileId: string; chunkIndex: number; received: boolean; hash?: string; }
