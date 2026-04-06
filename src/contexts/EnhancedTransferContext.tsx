@@ -111,14 +111,22 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
       onComplete: (fileId, file) => {
         const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === fileId)?.[0];
         if (transferId) {
-          setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: 'complete', progress: 100, completedAt: Date.now() } : t));
+          setTransfers(prev => {
+            const transfer = prev.find(t => t.id === transferId);
+            if (transfer?.thumbnail) URL.revokeObjectURL(transfer.thumbnail);
+            return prev.map(t => t.id === transferId ? { ...t, status: 'complete', progress: 100, completedAt: Date.now(), thumbnail: undefined } : t);
+          });
           addToast({ type: 'success', message: `Sent: ${file.name}` });
         }
       },
       onError: (fileId, error) => {
         const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === fileId)?.[0];
         if (transferId) {
-          setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: 'failed', error } : t));
+          setTransfers(prev => {
+            const transfer = prev.find(t => t.id === transferId);
+            if (transfer?.thumbnail) URL.revokeObjectURL(transfer.thumbnail);
+            return prev.map(t => t.id === transferId ? { ...t, status: 'failed', error, thumbnail: undefined } : t);
+          });
         }
       },
       onVerificationComplete: (fileId, verified) => {
@@ -136,7 +144,11 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
       try {
         await enhancedWebRTC.sendFile(selectedFile.file, deviceId, transferId);
       } catch {
-        setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: 'failed', error: 'Transfer failed' } : t));
+        setTransfers(prev => {
+          const transfer = prev.find(t => t.id === transferId);
+          if (transfer?.thumbnail) URL.revokeObjectURL(transfer.thumbnail);
+          return prev.map(t => t.id === transferId ? { ...t, status: 'failed', error: 'Transfer failed', thumbnail: undefined } : t);
+        });
         addToast({ type: 'error', message: `Failed to send ${selectedFile.file.name}` });
       }
     }
@@ -144,7 +156,14 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
   }, [selectedDevice, selectedFiles, settings.pinEnabled, isPinVerified, addToast, clearFiles]);
   const pauseTransfer = useCallback((id: string) => { enhancedWebRTC.pauseTransfer(id); setTransfers(prev => prev.map(t => t.id === id ? { ...t, status: 'paused' } : t)); }, []);
   const resumeTransfer = useCallback((id: string) => { enhancedWebRTC.resumeTransfer(id); setTransfers(prev => prev.map(t => t.id === id ? { ...t, status: 'transferring' } : t)); }, []);
-  const cancelTransfer = useCallback((id: string) => { enhancedWebRTC.cancelTransfer(id); setTransfers(prev => prev.filter(t => t.id !== id)); }, []);
+  const cancelTransfer = useCallback((id: string) => {
+    setTransfers(prev => {
+      const transfer = prev.find(t => t.id === id);
+      if (transfer?.thumbnail) URL.revokeObjectURL(transfer.thumbnail);
+      return prev.filter(t => t.id !== id);
+    });
+    enhancedWebRTC.cancelTransfer(id);
+  }, []);
   const verifyPin = useCallback((pin: string): boolean => pin === settings.pin, [settings.pin]);
   const setPin = useCallback((pin: string) => { updateSettings({ pin, pinEnabled: true }); setIsPinVerified(true); }, [updateSettings]);
   const disablePin = useCallback(() => { updateSettings({ pin: '', pinEnabled: false }); setIsPinVerified(false); }, [updateSettings]);
