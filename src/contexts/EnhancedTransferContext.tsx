@@ -26,7 +26,7 @@ interface TransferContextType {
   isScanning: boolean; startScanning: () => void; stopScanning: () => void;
 }
 const TransferContext = createContext<TransferContextType | null>(null);
-const defaultSettings: AppSettingsState = { pinEnabled: false, pin: '', autoAccept: false, theme: 'dark', defaultQuality: 'original', compressionEnabled: false, notifications: false, soundEnabled: true, vibrationEnabled: true, maxConcurrentTransfers: 3, deviceNickname: '' };
+const defaultSettings: AppSettingsState = { pinEnabled: false, pin: '', autoAccept: false, theme: 'dark', defaultQuality: 'original', compressionEnabled: false, notifications: false, soundEnabled: true, vibrationEnabled: true, maxConcurrentTransfers: 3, chunkSize: 262144, showDetailedStats: true, deviceNickname: '' };
 const defaultStatistics: Statistics = { totalFilesSent: 0, totalFilesReceived: 0, totalBytesSent: 0, totalBytesReceived: 0, averageSpeed: 0, peakSpeed: 0, sessionStart: Date.now(), totalSessions: 0 };
 
 export function TransferProvider({ children }: { children: React.ReactNode }) {

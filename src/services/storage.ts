@@ -40,6 +40,8 @@ export interface AppSettings {
   soundEnabled: boolean;
   vibrationEnabled: boolean;
   maxConcurrentTransfers: number;
+  chunkSize: number;
+  showDetailedStats: boolean;
   deviceNickname: string;
 }
 
