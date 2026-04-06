@@ -4,7 +4,7 @@ const CHUNK_SIZE = 65536;
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }];
 export interface FileInfo { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; hash?: string; }
 export interface ChunkProgress { fileId: string; chunkIndex: number; received: boolean; hash?: string; }
-export interface TransferState { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; receivedChunks: ChunkProgress[]; status: 'pending' | 'paused' | 'transferring' | 'complete' | 'failed' | 'verifying'; progress: number; speed: number; startTime?: number; deviceId: string; direction: 'upload' | 'download'; error?: string; }
+export interface TransferState { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; receivedChunks: ChunkProgress[]; status: 'pending' | 'paused' | 'transferring' | 'complete' | 'failed' | 'verifying' | 'cancelled'; progress: number; speed: number; startTime?: number; deviceId: string; direction: 'upload' | 'download'; error?: string; }
 export interface PeerConnection { id: string; name: string; type: 'mobile' | 'desktop'; status: 'connecting' | 'connected' | 'disconnected'; connection?: RTCPeerConnection; dataChannel?: RTCDataChannel; signalStrength?: number; }
 export type TransferCallback = { onProgress?: (state: TransferState) => void; onComplete?: (fileId: string, file: File) => void; onError?: (fileId: string, error: string) => void; onVerificationComplete?: (fileId: string, verified: boolean) => void; };
 class EnhancedWebRTC {
@@ -156,18 +156,32 @@ class EnhancedWebRTC {
     let offset = 0;
     for (let i = 0; i < totalChunks; i++) {
       const currentState = this.transferStates.get(id);
-      if (currentState?.status === 'paused') await new Promise<void>(resolve => { const checkResume = setInterval(() => { const s = this.transferStates.get(id); if (s?.status === 'transferring') { clearInterval(checkResume); resolve(); } }, 100); });
+      if (!currentState || currentState.status === 'cancelled') break;
+      if (currentState.status === 'paused') {
+        await new Promise<void>(resolve => {
+          const checkPause = setInterval(() => {
+            const s = this.transferStates.get(id);
+            if (!s || s.status === 'cancelled') { clearInterval(checkPause); resolve(); }
+            else if (s.status === 'transferring') { clearInterval(checkPause); resolve(); }
+          }, 100);
+        });
+      }
+      const latestState = this.transferStates.get(id);
+      if (!latestState || latestState.status === 'cancelled') break;
       const start = i * CHUNK_SIZE; const end = Math.min(start + CHUNK_SIZE, file.size);
       peer.dataChannel.send(JSON.stringify({ type: 'file-chunk', fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, chunkIndex: i, totalChunks }));
       peer.dataChannel.send(arrayBuffer.slice(start, end));
     }
-    peer.dataChannel.send(JSON.stringify({ type: 'file-complete', fileId: id }));
+    const finalState = this.transferStates.get(id);
+    if (finalState && finalState.status !== 'cancelled') {
+      peer.dataChannel.send(JSON.stringify({ type: 'file-complete', fileId: id }));
+    }
     return id;
   }
 
-  pauseTransfer(fileId: string) { const state = this.transferStates.get(fileId); if (state) { state.status = 'paused'; this.peers.get(state.deviceId)?.dataChannel?.send(JSON.stringify({ type: 'file-pause', fileId })); } }
-  resumeTransfer(fileId: string) { const state = this.transferStates.get(fileId); if (state) { state.status = 'transferring'; this.peers.get(state.deviceId)?.dataChannel?.send(JSON.stringify({ type: 'file-resume', fileId, fromChunk: state.receivedChunks.length })); } }
-  cancelTransfer(fileId: string) { const state = this.transferStates.get(fileId); if (state) { this.peers.get(state.deviceId)?.dataChannel?.send(JSON.stringify({ type: 'file-cancel', fileId })); this.cleanup(fileId); } }
+  pauseTransfer(fileId: string) { const state = this.transferStates.get(fileId); if (state) { state.status = 'paused'; this.callbacks.get(state.deviceId)?.onProgress?.(state); this.peers.get(state.deviceId)?.dataChannel?.send(JSON.stringify({ type: 'file-pause', fileId })); } }
+  resumeTransfer(fileId: string) { const state = this.transferStates.get(fileId); if (state) { state.status = 'transferring'; state.startTime = Date.now(); this.callbacks.get(state.deviceId)?.onProgress?.(state); this.peers.get(state.deviceId)?.dataChannel?.send(JSON.stringify({ type: 'file-resume', fileId })); } }
+  cancelTransfer(fileId: string) { const state = this.transferStates.get(fileId); if (state) { state.status = 'cancelled'; this.peers.get(state.deviceId)?.dataChannel?.send(JSON.stringify({ type: 'file-cancel', fileId })); this.cleanup(fileId); } }
   getTransferState(fileId: string): TransferState | undefined { return this.transferStates.get(fileId); }
   getAllTransferStates(): TransferState[] { return Array.from(this.transferStates.values()); }
   registerCallback(deviceId: string, callback: TransferCallback) { this.callbacks.set(deviceId, callback); }
