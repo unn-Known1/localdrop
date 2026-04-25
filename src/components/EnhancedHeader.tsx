@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
-import { Settings, Wifi, WifiOff, Shield, Bell, Activity, Lock, Unlock, Scan } from 'lucide-react';
+import { Settings, Wifi, WifiOff, Shield, Bell, Activity, Lock, Unlock, Scan, QrCode } from 'lucide-react';
 import { useTransfer } from '../contexts/EnhancedTransferContext';
 import { PinModal } from './PinModal';
 import { StatisticsPanel } from './StatisticsPanel';
+import { QRModal } from './QRModal';
 
 export function EnhancedHeader() {
-  const { localName, devices, settings, notificationsEnabled, requestNotificationPermission, isPinVerified, startScanning, stopScanning, isScanning } = useTransfer();
+  const { localName, devices, settings, notificationsEnabled, requestNotificationPermission, isPinVerified, startScanning, stopScanning, isScanning, localId } = useTransfer();
   const [showPinModal, setShowPinModal] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
   const [pinMode, setPinMode] = useState<'enter' | 'setup'>('enter');
   const connectedDevices = devices.filter(d => d.status === 'connected').length;
   const discoveredDevices = devices.filter(d => d.status === 'discovered').length;
@@ -44,6 +46,7 @@ export function EnhancedHeader() {
           </div>
           <div className="flex items-center gap-1 md:gap-2">
             <button onClick={isScanning ? stopScanning : startScanning} className={`p-2 rounded-xl transition-all ${isScanning ? 'bg-cyan-500/20 text-cyan-400' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'}`}><Scan className="w-4 h-4 md:w-5 md:h-5" /></button>
+            <button onClick={() => setShowQRModal(true)} className="p-2 rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10" title="Show QR code"><QrCode className="w-4 h-4 md:w-5 md:h-5" /></button>
             <button onClick={handlePinClick} className="hidden sm:block p-2 rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10"><Lock className="w-4 h-4 md:w-5 md:h-5" /></button>
             {typeof Notification !== 'undefined' && Notification.permission !== 'denied' && <button onClick={requestNotificationPermission} className="hidden sm:block p-2 rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10"><Bell className="w-4 h-4 md:w-5 md:h-5" /></button>}
             <button onClick={() => setShowStats(true)} className="hidden sm:block p-2 rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10"><Activity className="w-4 h-4 md:w-5 md:h-5" /></button>
@@ -52,6 +55,7 @@ export function EnhancedHeader() {
       </header>
       <PinModal isOpen={showPinModal} onClose={() => setShowPinModal(false)} mode={pinMode} />
       <StatisticsPanel isOpen={showStats} onClose={() => setShowStats(false)} />
+      <QRModal isOpen={showQRModal} onClose={() => setShowQRModal(false)} />
     </>
   );
 }
