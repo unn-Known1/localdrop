@@ -6,7 +6,7 @@ import { notificationService } from '../services/notifications';
 import { fileProcessor, ProcessedFile } from '../services/fileProcessor';
 
 export interface Device { id: string; name: string; type: 'mobile' | 'desktop'; status: 'discovered' | 'connecting' | 'connected' | 'disconnected'; nickname?: string; isFavorite?: boolean; signalStrength?: number; lastConnected?: number; }
-export interface SelectedFile { id: string; file: File; thumbnail?: string; size: number; type: string; width?: number; height?: number; duration?: number; processed?: ProcessedFile; }
+export interface SelectedFile { id: string; file: File; thumbnail?: string; size: number; type: string; width?: number; height?: number; duration?: number; processed?: ProcessedFile; hasCompressionIssue?: boolean; }
 export interface Transfer { id: string; fileName: string; fileSize: number; fileType: string; direction: 'upload' | 'download'; status: 'pending' | 'queued' | 'transferring' | 'paused' | 'complete' | 'failed' | 'verifying'; progress: number; speed: number; deviceId?: string; deviceName?: string; error?: string; verified?: boolean; startedAt?: number; completedAt?: number; thumbnail?: string; }
 export interface AppSettingsState extends AppSettings { deviceNickname: string; }
 interface Toast { id: string; type: 'success' | 'error' | 'warning' | 'info'; message: string; duration?: number; }
@@ -90,14 +90,42 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
       const info = await fileProcessor.getFileInfo(file);
       let thumbnail: string | undefined; if (info.isImage || info.isVideo) thumbnail = URL.createObjectURL(file);
       let processed: ProcessedFile | undefined;
+      let compressionFailed = false;
       if (options?.compress && (info.isImage || info.isVideo)) {
-        try { if (info.isImage) processed = await fileProcessor.processImage(file, { quality: (options.quality as any) || settings.defaultQuality }); else if (info.isVideo) processed = await fileProcessor.processVideo(file, { quality: (options.quality as any) || settings.defaultQuality }); if (processed?.wasCompressed) setProcessedFiles(prev => new Map(prev).set(id, processed!)); } catch (e) { console.error('Compression failed:', e); }
+        try {
+          // Safely validate and convert quality parameter
+          const qualityValue = options.quality;
+          let quality: number;
+
+          // Handle different quality input types safely
+          if (typeof qualityValue === 'number') {
+            quality = Math.max(0, Math.min(100, qualityValue));
+          } else if (typeof qualityValue === 'string') {
+            const parsed = parseInt(qualityValue, 10);
+            quality = isNaN(parsed) ? 80 : Math.max(0, Math.min(100, parsed));
+          } else {
+            // Default quality if not specified
+            quality = settings.defaultQuality === 'original' ? 100 : (parseInt(settings.defaultQuality, 10) || 80);
+          }
+
+          if (info.isImage) {
+            processed = await fileProcessor.processImage(file, { quality });
+          } else if (info.isVideo) {
+            processed = await fileProcessor.processVideo(file, { quality });
+          }
+          if (processed?.wasCompressed) setProcessedFiles(prev => new Map(prev).set(id, processed!));
+        } catch (e) {
+          // Mark compression as failed for user notification
+          compressionFailed = true;
+          console.error('Compression failed:', e);
+          addToast({ type: 'warning', message: `Compression failed for ${file.name} - sending original file` });
+        }
       }
       let finalFile = file; if (processed?.file) finalFile = processed.file instanceof File ? processed.file : new File([processed.file], file.name, { type: processed.file.type || file.type, lastModified: Date.now() });
-      newFiles.push({ id, file: finalFile, thumbnail, size: processed?.processedSize || file.size, type: file.type, width: info.width, height: info.height, duration: info.duration, processed });
+      newFiles.push({ id, file: finalFile, thumbnail, size: processed?.processedSize || file.size, type: file.type, width: info.width, height: info.height, duration: info.duration, processed, hasCompressionIssue: compressionFailed });
     }
     setSelectedFiles(prev => [...prev, ...newFiles]);
-  }, [settings.defaultQuality]);
+  }, [settings.defaultQuality, addToast]);
   const removeFile = useCallback((id: string) => { setSelectedFiles(prev => { const file = prev.find(f => f.id === id); if (file?.thumbnail) URL.revokeObjectURL(file.thumbnail); return prev.filter(f => f.id !== id); }); }, []);
   const clearFiles = useCallback(() => { setSelectedFiles(prev => { prev.forEach(f => { if (f.thumbnail) URL.revokeObjectURL(f.thumbnail); }); return []; }); setProcessedFiles(new Map()); }, []);
   const previewFile = useCallback((id: string) => { const file = selectedFiles.find(f => f.id === id); if (file) { const url = URL.createObjectURL(file.file); window.open(url, '_blank'); } }, [selectedFiles]);
