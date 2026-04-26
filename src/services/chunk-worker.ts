@@ -203,7 +203,13 @@ class ChunkWorkerManager {
           await new Promise(r => setTimeout(r, 10));
         }
       }
+    } catch (err) {
+      // Clean up pending request on error to prevent memory leak
+      this.pendingRequests.delete(id);
+      throw err;
     } finally {
+      // Always clean up pending request when generator completes or errors
+      this.pendingRequests.delete(id);
       this.worker!.onmessage = originalOnMessage;
     }
   }
