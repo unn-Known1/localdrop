@@ -90,22 +90,45 @@ class EnhancedWebRTC {
   private async handleBinaryChunk(data: ArrayBuffer, deviceId: string) {
     if (!this.activeReceiveFileId) return;
     const fileId = this.activeReceiveFileId;
-    const received = this.receivedChunks.get(fileId);
     const fileInfo = this.pendingFiles.get(fileId);
-    if (received && fileInfo && received.length < fileInfo.totalChunks) {
-      received.push(data);
-      const progress = (received.length / fileInfo.totalChunks) * 100;
-      const state = this.transferStates.get(fileId);
-      if (state) {
-        state.progress = progress;
-        state.receivedChunks.push({ fileId, chunkIndex: received.length - 1, received: true });
-        const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000;
-        state.speed = (received.length * CHUNK_SIZE) / elapsed;
-        this.callbacks.get(deviceId)?.onProgress?.(state);
-      }
-      const peer = this.peers.get(deviceId);
-      peer?.dataChannel?.send(JSON.stringify({ type: 'chunk-ack', fileId, chunkIndex: received.length - 1 }));
+    if (!fileInfo) return;
+
+    // Initialize received chunks array if needed
+    if (!this.receivedChunks.has(fileId)) {
+      this.receivedChunks.set(fileId, []);
     }
+    const received = this.receivedChunks.get(fileId)!;
+
+    // Get chunk index from the binary data header (first 4 bytes as big-endian uint32)
+    if (data.byteLength < 4) {
+      console.error('Invalid chunk: too small to contain index');
+      return;
+    }
+    const view = new DataView(data.slice(0, 4));
+    const chunkIndex = view.getUint32(0, false); // big-endian
+    const chunkData = data.slice(4);
+
+    // Ensure array is large enough and store chunk at correct index
+    while (received.length < chunkIndex) {
+      received.push(null as any); // Fill gaps with null placeholders
+    }
+    if (received[chunkIndex] === null) {
+      received[chunkIndex] = chunkData;
+    }
+
+    // Count received chunks (non-null)
+    const receivedCount = received.filter(c => c !== null).length;
+    const progress = (receivedCount / fileInfo.totalChunks) * 100;
+    const state = this.transferStates.get(fileId);
+    if (state) {
+      state.progress = progress;
+      state.receivedChunks.push({ fileId, chunkIndex, received: true });
+      const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000;
+      state.speed = (receivedCount * CHUNK_SIZE) / elapsed;
+      this.callbacks.get(deviceId)?.onProgress?.(state);
+    }
+    const peer = this.peers.get(deviceId);
+    peer?.dataChannel?.send(JSON.stringify({ type: 'chunk-ack', fileId, chunkIndex }));
   }
 
   private async handleFileComplete(message: any, deviceId: string) {
@@ -119,11 +142,19 @@ class EnhancedWebRTC {
         state.status = 'complete'; state.progress = 100;
         const chunks = this.receivedChunks.get(fileId);
         if (chunks) {
-          const blob = new Blob(chunks, { type: state.fileType });
-          const file = new File([blob], state.fileName);
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a'); a.href = url; a.download = state.fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-          this.callbacks.get(deviceId)?.onComplete?.(fileId, file);
+          // Filter out null chunks (missing/out-of-order chunks)
+          const validChunks = chunks.filter((c): c is ArrayBuffer => c !== null);
+          if (validChunks.length === chunks.length) {
+            const blob = new Blob(validChunks, { type: state.fileType });
+            const file = new File([blob], state.fileName);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = state.fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            this.callbacks.get(deviceId)?.onComplete?.(fileId, file);
+          } else {
+            state.status = 'failed';
+            state.error = `Missing ${chunks.length - validChunks.length} chunks`;
+            this.callbacks.get(deviceId)?.onError?.(fileId, state.error);
+          }
         }
       } else { state.status = 'failed'; state.error = 'File verification failed'; this.callbacks.get(deviceId)?.onError?.(fileId, 'File verification failed'); }
         this.callbacks.get(deviceId)?.onProgress?.(state);
