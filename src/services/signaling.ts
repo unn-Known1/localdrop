@@ -31,7 +31,12 @@ class SignalingService {
     }
   }
 
-  private generateId(): string { return Math.random().toString(36).substring(2, 15) + Date.now().toString(36); }
+  private generateId(): string {
+    // Use crypto.getRandomValues() for cryptographically secure random ID generation
+    const array = new Uint32Array(4);
+    crypto.getRandomValues(array);
+    return Array.from(array, (dec) => dec.toString(36).padStart(6, '0')).join('');
+  }
   private getDeviceName(): string {
     if (typeof navigator === 'undefined') return 'Device';
     const ua = navigator.userAgent;
