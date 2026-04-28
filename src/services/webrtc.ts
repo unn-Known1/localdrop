@@ -1,4 +1,6 @@
 // WebRTC Service for P2P File Transfer
+// CWE-400: Memory exhaustion protection
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB maximum
 
 export interface PeerConnection {
   id: string;
@@ -62,10 +64,39 @@ class WebRTCService {
   private localId: string = '';
   private localName: string = '';
   private pendingFiles: Map<string, { metadata: FileMetadata; chunks: ArrayBuffer[] }> = new Map();
+  private initialized: boolean = false;
 
   constructor() {
     this.localId = this.generateId();
     this.localName = this.getDeviceName();
+    this.initCleanupHandlers();
+  }
+
+  // CWE-400: Add cleanup handlers for page unload to prevent connection leaks
+  private initCleanupHandlers() {
+    if (typeof window !== 'undefined' && !this.initialized) {
+      this.initialized = true;
+
+      // Handle page unload and visibility change
+      window.addEventListener('beforeunload', () => this.cleanupAll());
+      window.addEventListener('pagehide', () => this.cleanupAll());
+
+      // Also handle visibility change for mobile browsers
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+          // Optionally cleanup inactive connections
+        }
+      });
+    }
+  }
+
+  // Clean up all peer connections
+  cleanupAll() {
+    for (const [id] of this.peers) {
+      this.removePeer(id);
+    }
+    // Clear pending files that were never completed
+    this.pendingFiles.clear();
   }
 
   private generateId(): string {
@@ -228,6 +259,30 @@ class WebRTCService {
   }
 
   private assembleFile(fileId: string, pending: { metadata: FileMetadata; chunks: ArrayBuffer[] }) {
+    // CWE-122: Validate all chunks received before assembly
+    const missingChunks: number[] = [];
+    for (let i = 0; i < pending.metadata.totalChunks; i++) {
+      if (!pending.chunks[i]) {
+        missingChunks.push(i);
+      }
+    }
+
+    if (missingChunks.length > 0) {
+      console.error(`File assembly failed: Missing chunks at indices: ${missingChunks.join(', ')}`);
+      // Request missing chunks from sender
+      const peer = Array.from(this.peers.values()).find(p =>
+        p.dataChannel?.readyState === 'open'
+      );
+      if (peer) {
+        peer.dataChannel.send(JSON.stringify({
+          type: 'chunk-resend-request',
+          fileId,
+          missingIndices: missingChunks
+        }));
+      }
+      return;
+    }
+
     const blob = new Blob(pending.chunks, { type: pending.metadata.fileType });
     const url = URL.createObjectURL(blob);
 
@@ -282,6 +337,11 @@ class WebRTCService {
     const peer = this.peers.get(peerId);
     if (!peer?.dataChannel || peer.dataChannel.readyState !== 'open') {
       throw new Error('Peer not connected');
+    }
+
+    // CWE-400: Validate file size to prevent memory exhaustion
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error(`File too large. Maximum size: ${MAX_FILE_SIZE} bytes (100MB)`);
     }
 
     const fileId = this.generateId();
