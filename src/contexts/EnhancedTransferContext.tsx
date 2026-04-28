@@ -49,8 +49,14 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const removeToast = useCallback((id: string) => { setToasts(prev => prev.filter(t => t.id !== id)); }, []);
+  const generateSecureId = (): string => {
+    const array = new Uint32Array(4);
+    crypto.getRandomValues(array);
+    return Array.from(array, (dec) => dec.toString(36).padStart(6, '0')).join('');
+  };
+
   const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
-    const id = Math.random().toString(36).substring(2, 15);
+    const id = generateSecureId();
     setToasts(prev => [...prev, { ...toast, id }]);
     if (settings.soundEnabled) { if (toast.type === 'success') notificationService.playSound('transfer-complete'); if (toast.type === 'error') notificationService.playSound('transfer-error'); }
     if (settings.vibrationEnabled) { if (toast.type === 'success') notificationService.vibrate(100); if (toast.type === 'error') notificationService.vibrate([100, 50, 100]); }
@@ -86,7 +92,7 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
   const addFiles = useCallback(async (files: FileList | File[], options?: { compress?: boolean; quality?: string }) => {
     const fileArray = Array.from(files); const newFiles: SelectedFile[] = [];
     for (const file of fileArray) {
-      const id = Math.random().toString(36).substring(2, 15);
+      const id = generateSecureId();
       const info = await fileProcessor.getFileInfo(file);
       let thumbnail: string | undefined; if (info.isImage || info.isVideo) thumbnail = URL.createObjectURL(file);
       let processed: ProcessedFile | undefined;
@@ -171,7 +177,7 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
       },
     });
     for (const selectedFile of selectedFiles) {
-      const transferId = Math.random().toString(36).substring(2, 15);
+      const transferId = generateSecureId();
       transferIdToFileId.set(transferId, transferId);
       const transfer: Transfer = { id: transferId, fileName: selectedFile.file.name, fileSize: selectedFile.size, fileType: selectedFile.type, direction: 'upload', status: 'transferring', progress: 0, speed: 0, deviceId: selectedDevice.id, deviceName: selectedDevice.name, startedAt: Date.now(), thumbnail: selectedFile.thumbnail };
       setTransfers(prev => [...prev, transfer]);

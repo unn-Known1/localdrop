@@ -106,12 +106,26 @@ class EnhancedWebRTC {
     }
     const view = new DataView(data.slice(0, 4));
     const chunkIndex = view.getUint32(0, false); // big-endian
+
+    // SECURITY: Validate chunk index to prevent memory exhaustion attacks
+    // Chunk index must be within valid range [0, totalChunks-1]
+    if (chunkIndex >= fileInfo.totalChunks) {
+      console.error(`Invalid chunk index: ${chunkIndex} (expected < ${fileInfo.totalChunks})`);
+      return;
+    }
+    if (chunkIndex < 0) {
+      console.error(`Negative chunk index: ${chunkIndex}`);
+      return;
+    }
+
     const chunkData = data.slice(4);
 
     // Ensure array is large enough and store chunk at correct index
     while (received.length < chunkIndex) {
       received.push(null as any); // Fill gaps with null placeholders
     }
+
+    // SECURITY: Prevent duplicate chunk overwrite - only accept first chunk at each index
     if (received[chunkIndex] === null) {
       received[chunkIndex] = chunkData;
     }
@@ -177,7 +191,13 @@ class EnhancedWebRTC {
   async sendFile(file: File, deviceId: string, fileId?: string): Promise<string> {
     const peer = this.peers.get(deviceId);
     if (!peer?.dataChannel || peer.dataChannel.readyState !== 'open') throw new Error('Peer not connected');
-    const id = fileId || Math.random().toString(36).substring(2, 15);
+    // Use crypto for secure file ID generation if no fileId provided
+    const generateSecureId = (): string => {
+      const array = new Uint32Array(4);
+      crypto.getRandomValues(array);
+      return Array.from(array, (dec) => dec.toString(36).padStart(6, '0')).join('');
+    };
+    const id = fileId || generateSecureId();
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const arrayBuffer = await file.arrayBuffer();
     const hash = await this.hashChunk(arrayBuffer);
