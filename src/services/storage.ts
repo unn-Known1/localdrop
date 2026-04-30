@@ -31,7 +31,6 @@ export interface TransferRecord {
 
 export interface AppSettings {
   pinEnabled: boolean;
-  pin: string;
   autoAccept: boolean;
   theme: 'dark' | 'light' | 'system';
   defaultQuality: 'original' | 'high' | 'medium' | 'low';
@@ -59,9 +58,119 @@ export interface Statistics {
 class StorageService {
   private db: IDBDatabase | null = null;
   private dbReady: Promise<void>;
+  // SECURITY: Salt for PIN hashing - should be unique per installation
+  private static PIN_SALT_LENGTH = 16;
+  private static PIN_HASH_ALGORITHM = 'SHA-256';
+  private cachedPinHash: string | null = null;
+  private cachedSalt: Uint8Array | null = null;
 
   constructor() {
     this.dbReady = this.initDB();
+  }
+
+  // SECURITY: Hash PIN using Web Crypto API with salt
+  private async hashPin(pin: string, salt: Uint8Array): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(pin);
+    // Combine salt + PIN for hashing
+    const combined = new Uint8Array(salt.length + data.length);
+    combined.set(salt, 0);
+    combined.set(data, salt.length);
+    const hashBuffer = await crypto.subtle.digest(this.PIN_HASH_ALGORITHM, combined);
+    return this.arrayBufferToHex(hashBuffer);
+  }
+
+  private arrayBufferToHex(buffer: ArrayBuffer): string {
+    return Array.from(new Uint8Array(buffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  private generateSalt(): Uint8Array {
+    return crypto.getRandomValues(new Uint8Array(this.PIN_SALT_LENGTH));
+  }
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  private base64ToArrayBuffer(base64: string): Uint8Array {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  // SECURITY: Store PIN as hashed value instead of plaintext
+  async setPin(pin: string): Promise<void> {
+    if (!pin || pin.length < 4 || pin.length > 8) {
+      throw new Error('PIN must be 4-8 digits');
+    }
+    // Validate PIN contains only digits
+    if (!/^\d+$/.test(pin)) {
+      throw new Error('PIN must contain only digits');
+    }
+
+    const salt = this.generateSalt();
+    const hash = await this.hashPin(pin, salt);
+
+    // Store salt and hash separately
+    await this.saveSetting('pinSalt', this.arrayBufferToBase64(salt.buffer));
+    await this.saveSetting('pinHash', hash);
+
+    // Cache for quick verification
+    this.cachedPinHash = hash;
+    this.cachedSalt = salt;
+  }
+
+  // SECURITY: Verify PIN against stored hash
+  async verifyPin(pin: string): Promise<boolean> {
+    try {
+      const saltBase64 = await this.getSetting<string | null>('pinSalt', null);
+      const storedHash = await this.getSetting<string | null>('pinHash', null);
+
+      if (!saltBase64 || !storedHash) {
+        return false;
+      }
+
+      const salt = this.base64ToArrayBuffer(saltBase64);
+      const inputHash = await this.hashPin(pin, salt);
+
+      // Use timing-safe comparison to prevent timing attacks
+      if (inputHash.length !== storedHash.length) {
+        return false;
+      }
+
+      let result = 0;
+      for (let i = 0; i < inputHash.length; i++) {
+        result |= inputHash.charCodeAt(i) ^ storedHash.charCodeAt(i);
+      }
+
+      return result === 0;
+    } catch (error) {
+      console.error('PIN verification error:', error);
+      return false;
+    }
+  }
+
+  async isPinSet(): Promise<boolean> {
+    const hash = await this.getSetting<string | null>('pinHash', null);
+    return hash !== null;
+  }
+
+  // SECURITY: Clear PIN data securely
+  async clearPin(): Promise<void> {
+    await this.saveSetting('pinHash', '');
+    await this.saveSetting('pinSalt', '');
+    this.cachedPinHash = null;
+    this.cachedSalt = null;
   }
 
   private async initDB(): Promise<void> {
