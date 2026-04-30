@@ -90,7 +90,27 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
   const connectToDevice = useCallback(async (deviceId: string) => { const device = devices.find(d => d.id === deviceId); if (!device) return; setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'connecting' } : d)); try { await enhancedWebRTC.createPeer(deviceId, device.name, device.type); } catch { setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'discovered' } : d)); addToast({ type: 'error', message: 'Failed to connect' }); } }, [devices, addToast]);
   const disconnectDevice = useCallback((deviceId: string) => { enhancedWebRTC.removePeer(deviceId); signalingService.disconnect(deviceId); setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'discovered' } : d)); if (selectedDevice?.id === deviceId) setSelectedDevice(null); }, [selectedDevice]);
   const addFiles = useCallback(async (files: FileList | File[], options?: { compress?: boolean; quality?: string }) => {
-    const fileArray = Array.from(files); const newFiles: SelectedFile[] = [];
+    const fileArray = Array.from(files);
+
+    // SECURITY FIX: Add file size validation to prevent memory exhaustion
+    const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10GB per file limit
+    const MAX_TOTAL_SIZE = 50 * 1024 * 1024 * 1024; // 50GB total limit
+    let totalSize = selectedFiles.reduce((acc, f) => acc + f.size, 0);
+
+    // Validate all files before processing
+    for (const file of fileArray) {
+      if (file.size > MAX_FILE_SIZE) {
+        addToast({ type: 'error', message: `File too large: ${file.name} (max 10GB)` });
+        return;
+      }
+      if (totalSize + file.size > MAX_TOTAL_SIZE) {
+        addToast({ type: 'error', message: 'Total files exceed 50GB limit' });
+        return;
+      }
+      totalSize += file.size;
+    }
+
+    const newFiles: SelectedFile[] = [];
     for (const file of fileArray) {
       const id = generateSecureId();
       const info = await fileProcessor.getFileInfo(file);
@@ -204,7 +224,11 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
     });
     enhancedWebRTC.cancelTransfer(id);
   }, []);
-  const verifyPin = useCallback((pin: string): boolean => pin === settings.pin, [settings.pin]);
+  const verifyPin = useCallback(async (pin: string): Promise<boolean> => {
+    // SECURITY FIX: Use secure hashing verification from storage service
+    if (!settings.pinEnabled) return true;
+    return await storageService.verifyPin(pin);
+  }, [settings.pinEnabled]);
   const setPin = useCallback((pin: string) => { updateSettings({ pin, pinEnabled: true }); setIsPinVerified(true); }, [updateSettings]);
   const disablePin = useCallback(() => { updateSettings({ pin: '', pinEnabled: false }); setIsPinVerified(false); }, [updateSettings]);
   const requestNotificationPermission = useCallback(async (): Promise<boolean> => { const granted = await notificationService.requestPermission(); setNotificationsEnabled(granted); return granted; }, []);
