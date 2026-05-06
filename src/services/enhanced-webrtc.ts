@@ -78,6 +78,21 @@ class EnhancedWebRTC {
   }
 
   private handleFileInfo(message: any, deviceId: string) {
+    // CWE-20: Validate file metadata from untrusted peer
+    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+    if (!message.fileId || typeof message.fileId !== 'string') return;
+    if (!message.fileName || typeof message.fileName !== 'string' || message.fileName.length > 255) return;
+    if (!message.fileSize || message.fileSize <= 0 || message.fileSize > MAX_FILE_SIZE) {
+      console.error(`Invalid file size: ${message.fileSize}`);
+      return;
+    }
+    // Validate totalChunks is reasonable
+    const expectedChunks = Math.ceil(message.fileSize / CHUNK_SIZE);
+    if (message.totalChunks !== expectedChunks || message.totalChunks > 10000) {
+      console.error(`Invalid chunk count: ${message.totalChunks} (expected: ${expectedChunks})`);
+      return;
+    }
+
     const fileInfo: FileInfo = { fileId: message.fileId, fileName: message.fileName, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, hash: message.hash };
     this.pendingFiles.set(message.fileId, fileInfo);
     this.receivedChunks.set(message.fileId, []);
@@ -189,6 +204,12 @@ class EnhancedWebRTC {
   }
 
   async sendFile(file: File, deviceId: string, fileId?: string): Promise<string> {
+    // CWE-400: Validate file size to prevent memory exhaustion
+    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error(`File too large. Maximum size: ${MAX_FILE_SIZE} bytes (100MB)`);
+    }
+
     const peer = this.peers.get(deviceId);
     if (!peer?.dataChannel || peer.dataChannel.readyState !== 'open') throw new Error('Peer not connected');
     // Use crypto for secure file ID generation if no fileId provided
