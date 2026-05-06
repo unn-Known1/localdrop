@@ -146,8 +146,7 @@ class EnhancedWebRTC {
 
     // SECURITY: Atomic chunk write - only accept first chunk at each index
     // This prevents potential race conditions where multiple chunks could overwrite each other
-    const currentValue = received[chunkIndex];
-    if (currentValue === undefined) {
+    if (received[chunkIndex] === undefined) {
       received[chunkIndex] = chunkData;
     } else {
       // Chunk already received - skip to prevent data corruption
