@@ -1,7 +1,6 @@
 // Enhanced WebRTC Service with Chunked Transfer, Pause/Resume, and Hash Verification
 import { signalingService, Device } from './signaling';
 const CHUNK_SIZE = 262144;
-const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB limit - prevents memory exhaustion
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }];
 export interface FileInfo { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; hash?: string; }
 export interface ChunkProgress { fileId: string; chunkIndex: number; received: boolean; hash?: string; }
@@ -79,19 +78,18 @@ class EnhancedWebRTC {
   }
 
   private handleFileInfo(message: any, deviceId: string) {
-    // SECURITY: Validate file size to prevent memory exhaustion attacks
-    if (!message.fileSize || typeof message.fileSize !== 'number' || message.fileSize <= 0) {
-      console.error('Invalid file size:', message.fileSize);
+    // CWE-20: Validate file metadata from untrusted peer
+    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+    if (!message.fileId || typeof message.fileId !== 'string') return;
+    if (!message.fileName || typeof message.fileName !== 'string' || message.fileName.length > 255) return;
+    if (!message.fileSize || message.fileSize <= 0 || message.fileSize > MAX_FILE_SIZE) {
+      console.error(`Invalid file size: ${message.fileSize}`);
       return;
     }
-    if (message.fileSize > MAX_FILE_SIZE) {
-      console.error(`File too large: ${message.fileSize} bytes (max: ${MAX_FILE_SIZE})`);
-      const peer = this.peers.get(deviceId);
-      peer?.dataChannel?.send(JSON.stringify({ type: 'file-cancel', fileId: message.fileId, reason: 'File too large' }));
-      return;
-    }
-    if (!message.totalChunks || message.totalChunks < 1 || message.totalChunks > 100000) {
-      console.error('Invalid totalChunks:', message.totalChunks);
+    // Validate totalChunks is reasonable
+    const expectedChunks = Math.ceil(message.fileSize / CHUNK_SIZE);
+    if (message.totalChunks !== expectedChunks || message.totalChunks > 10000) {
+      console.error(`Invalid chunk count: ${message.totalChunks} (expected: ${expectedChunks})`);
       return;
     }
 
@@ -137,21 +135,14 @@ class EnhancedWebRTC {
 
     const chunkData = data.slice(4);
 
-    // Ensure array is large enough and store chunk at correct index (atomic operation)
-    // Use a lock mechanism to prevent race conditions in chunk storage
-    if (received.length <= chunkIndex) {
-      // Pre-allocate array to required size atomically
-      received.length = chunkIndex + 1;
+    // Ensure array is large enough and store chunk at correct index
+    while (received.length < chunkIndex) {
+      received.push(null as any); // Fill gaps with null placeholders
     }
 
-    // SECURITY: Atomic chunk write - only accept first chunk at each index
-    // This prevents potential race conditions where multiple chunks could overwrite each other
-    if (received[chunkIndex] === undefined) {
+    // SECURITY: Prevent duplicate chunk overwrite - only accept first chunk at each index
+    if (received[chunkIndex] === null) {
       received[chunkIndex] = chunkData;
-    } else {
-      // Chunk already received - skip to prevent data corruption
-      console.warn(`Duplicate chunk ${chunkIndex} ignored for file ${fileId}`);
-      return;
     }
 
     // Count received chunks (non-null)
@@ -213,6 +204,12 @@ class EnhancedWebRTC {
   }
 
   async sendFile(file: File, deviceId: string, fileId?: string): Promise<string> {
+    // CWE-400: Validate file size to prevent memory exhaustion
+    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error(`File too large. Maximum size: ${MAX_FILE_SIZE} bytes (100MB)`);
+    }
+
     const peer = this.peers.get(deviceId);
     if (!peer?.dataChannel || peer.dataChannel.readyState !== 'open') throw new Error('Peer not connected');
     // Use crypto for secure file ID generation if no fileId provided
@@ -233,38 +230,13 @@ class EnhancedWebRTC {
       const currentState = this.transferStates.get(id);
       if (!currentState || currentState.status === 'cancelled') break;
       if (currentState.status === 'paused') {
-        // SECURITY: Add timeout to prevent infinite waiting loops
-        const maxWaitTime = 300000; // 5 minutes max wait time
-        const pauseStartTime = Date.now();
-
         await new Promise<void>(resolve => {
           const checkPause = setInterval(() => {
             const s = this.transferStates.get(id);
-            const elapsedTime = Date.now() - pauseStartTime;
-
-            // Exit conditions with timeout protection
-            if (!s || s.status === 'cancelled') {
-              clearInterval(checkPause);
-              resolve();
-            }
-            else if (s.status === 'transferring') {
-              clearInterval(checkPause);
-              resolve();
-            }
-            // SECURITY: Force exit after timeout to prevent infinite loop
-            else if (elapsedTime > maxWaitTime) {
-              clearInterval(checkPause);
-              console.warn(`Transfer ${id} timeout after waiting ${maxWaitTime}ms for resume`);
-              // Cancel the transfer to prevent hanging
-              s.status = 'cancelled';
-              resolve();
-            }
+            if (!s || s.status === 'cancelled') { clearInterval(checkPause); resolve(); }
+            else if (s.status === 'transferring') { clearInterval(checkPause); resolve(); }
           }, 100);
         });
-
-        // Check if transfer was cancelled due to timeout
-        const postWaitState = this.transferStates.get(id);
-        if (!postWaitState || postWaitState.status === 'cancelled') break;
       }
       const latestState = this.transferStates.get(id);
       if (!latestState || latestState.status === 'cancelled') break;
