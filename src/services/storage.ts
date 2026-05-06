@@ -31,7 +31,7 @@ export interface TransferRecord {
 
 export interface AppSettings {
   pinEnabled: boolean;
-  pin: string;
+  pinHash: string;
   autoAccept: boolean;
   theme: 'dark' | 'light' | 'system';
   defaultQuality: 'original' | 'high' | 'medium' | 'low';
@@ -406,6 +406,31 @@ class StorageService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
     });
+  }
+
+  // PIN security: Hash and verify PIN using Web Crypto API
+  private async hashPin(pin: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(pin);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async verifyPin(pin: string, storedHash: string): Promise<boolean> {
+    const hash = await this.hashPin(pin);
+    return hash === storedHash;
+  }
+
+  async setPin(pin: string): Promise<void> {
+    const hash = await this.hashPin(pin);
+    await this.saveSetting('pinHash', hash);
+    await this.saveSetting('pinEnabled', true);
+  }
+
+  async disablePin(): Promise<void> {
+    await this.saveSetting('pinHash', '');
+    await this.saveSetting('pinEnabled', false);
   }
 }
 
