@@ -47,6 +47,12 @@ LocalDrop is a modern, high-performance web application designed for secure and 
 
 ## 🚀 Quick Start
 
+### ⚡ One-Command Launch (Recommended)
+Run this in your terminal to automatically install, build, and launch:
+```bash
+./launch.sh
+```
+
 ### 1. Open the App
 Simply open LocalDrop in your browser on all devices you want to share between.
 
