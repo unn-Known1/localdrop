@@ -1,4 +1,5 @@
 import { Device, SignalMessage } from '../types';
+import { wsSignaling } from './websocket-signaling';
 
 class SignalingService {
   private localId: string = '';
@@ -56,6 +57,7 @@ class SignalingService {
     this.onDeviceDisconnected = options?.onDeviceDisconnected;
     this.onSignalReceived = options?.onSignalReceived;
     try { this.broadcastChannel = new BroadcastChannel('localdrop-signaling'); this.broadcastChannel.onmessage = (event) => { this.handleMessage(event.data); }; } catch (e) { console.warn('BroadcastChannel not supported'); }
+    wsSignaling.connect((msg) => this.handleMessage(msg));
     this.broadcastPresence();
     this.pingInterval = window.setInterval(() => { this.broadcastPresence(); }, 5000);
     this.cleanupInterval = window.setInterval(() => { this.cleanupStaleDevices(); }, 15000);
@@ -86,6 +88,7 @@ class SignalingService {
         localStorage.setItem(key, JSON.stringify(message));
         setTimeout(() => { try { localStorage.removeItem(key); } catch (e) {} }, 5000);
       }
+      wsSignaling.send(message);
     } catch (error) { console.error('Failed to send message:', error); }
   }
 
