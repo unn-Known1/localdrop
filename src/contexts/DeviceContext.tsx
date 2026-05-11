@@ -1,0 +1,138 @@
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { signalingService } from '../services/signaling';
+import { enhancedWebRTC } from '../services/enhanced-webrtc';
+import { storageService } from '../services/storage';
+import { notificationService } from '../services/notifications';
+import { Device, StoredDevice } from '../types';
+
+interface DeviceContextType {
+  localId: string;
+  localName: string;
+  setLocalName: (name: string) => void;
+  devices: Device[];
+  savedDevices: StoredDevice[];
+  selectedDevice: Device | null;
+  setSelectedDevice: (device: Device | null) => void;
+  connectToDevice: (deviceId: string) => Promise<void>;
+  disconnectDevice: (deviceId: string) => void;
+  removeSavedDevice: (id: string) => void;
+  toggleFavoriteDevice: (id: string) => void;
+  renameDevice: (id: string, name: string) => void;
+  isScanning: boolean;
+  startScanning: () => void;
+  stopScanning: () => void;
+}
+
+const DeviceContext = createContext<DeviceContextType | null>(null);
+
+export function DeviceProvider({ children }: { children: React.ReactNode }) {
+  const localInfo = signalingService.getLocalInfo();
+  const [localId] = useState(localInfo.id);
+  const [localName, setLocalNameState] = useState(localInfo.name);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const devicesRef = useRef<Device[]>([]);
+  const [savedDevices, setSavedDevices] = useState<StoredDevice[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+
+  const loadSavedDevices = useCallback(async () => {
+    const data = await storageService.getRecentDevices(20);
+    setSavedDevices(data);
+  }, []);
+
+  const setLocalName = useCallback((name: string) => {
+    setLocalNameState(name);
+    signalingService.setLocalName(name);
+    storageService.saveSetting('deviceNickname', name);
+  }, []);
+
+  useEffect(() => {
+    signalingService.start({
+      onDeviceDiscovered: (device) => {
+        setDevices(prev => {
+          const exists = prev.find(d => d.id === device.id);
+          if (exists) return prev.map(d => d.id === device.id ? { ...d, ...device } : d);
+          return [...prev, device as Device];
+        });
+      },
+      onDeviceConnected: (device) => {
+        setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: 'connected' } : d));
+        notificationService.playSound('device-connected');
+        storageService.saveDevice({
+          id: device.id, name: device.name, type: device.type,
+          lastConnected: Date.now(), totalTransfers: 0,
+          totalBytesTransferred: 0, isFavorite: false
+        });
+        loadSavedDevices();
+      },
+      onDeviceDisconnected: (deviceId) => {
+        setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'disconnected' } : d));
+      },
+      onSignalReceived: async (message) => {
+        const device = devicesRef.current.find(d => d.id === message.from);
+        if (message.type === 'offer') {
+          await enhancedWebRTC.handleOffer(message.payload, message.from, device?.name || 'Unknown', device?.type || 'desktop');
+        } else if (message.type === 'answer') {
+          await enhancedWebRTC.handleAnswer(message.payload, message.from);
+        } else if (message.type === 'ice-candidate') {
+          await enhancedWebRTC.handleIceCandidate(message.payload, message.from);
+        }
+      },
+    });
+    loadSavedDevices();
+    return () => signalingService.stop();
+  }, [loadSavedDevices]);
+
+  const connectToDevice = useCallback(async (deviceId: string) => {
+    const device = devices.find(d => d.id === deviceId);
+    if (!device) return;
+    setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'connecting' } : d));
+    try {
+      await enhancedWebRTC.createPeer(deviceId, device.name, device.type);
+    } catch {
+      setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'discovered' } : d));
+    }
+  }, [devices]);
+
+  const disconnectDevice = useCallback((deviceId: string) => {
+    enhancedWebRTC.removePeer(deviceId);
+    signalingService.disconnect(deviceId);
+    setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'discovered' } : d));
+    if (selectedDevice?.id === deviceId) setSelectedDevice(null);
+  }, [selectedDevice]);
+
+  const removeSavedDevice = useCallback((id: string) => {
+    storageService.deleteDevice(id);
+    setSavedDevices(prev => prev.filter(d => d.id !== id));
+  }, []);
+
+  const toggleFavoriteDevice = useCallback((id: string) => {
+    setSavedDevices(prev => prev.map(d => d.id === id ? { ...d, isFavorite: !d.isFavorite } : d));
+  }, []);
+
+  const renameDevice = useCallback((id: string, name: string) => {
+    setSavedDevices(prev => prev.map(d => d.id === id ? { ...d, name } : d));
+  }, []);
+
+  return (
+    <DeviceContext.Provider value={{
+      localId, localName, setLocalName,
+      devices, savedDevices, selectedDevice, setSelectedDevice,
+      connectToDevice, disconnectDevice,
+      removeSavedDevice, toggleFavoriteDevice, renameDevice,
+      isScanning, startScanning: () => setIsScanning(true), stopScanning: () => setIsScanning(false)
+    }}>
+      {children}
+    </DeviceContext.Provider>
+  );
+}
+
+export function useDevices() {
+  const context = useContext(DeviceContext);
+  if (!context) throw new Error('useDevices must be used within DeviceProvider');
+  return context;
+}
