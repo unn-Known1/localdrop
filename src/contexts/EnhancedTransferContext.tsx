@@ -4,6 +4,9 @@ import { enhancedWebRTC } from '../services/enhanced-webrtc';
 import { storageService, StoredDevice, TransferRecord, AppSettings, Statistics } from '../services/storage';
 import { notificationService } from '../services/notifications';
 import { fileProcessor, ProcessedFile } from '../services/fileProcessor';
+import { FILE_LIMITS, validateFileSize, validateTotalSize } from '../config/limits';
+import { generateSecureId } from '../services/crypto';
+import { TransferError } from '../utils/errors';
 
 export interface Device { id: string; name: string; type: 'mobile' | 'desktop'; status: 'discovered' | 'connecting' | 'connected' | 'disconnected'; nickname?: string; isFavorite?: boolean; signalStrength?: number; lastConnected?: number; }
 export interface SelectedFile { id: string; file: File; thumbnail?: string; size: number; type: string; width?: number; height?: number; duration?: number; processed?: ProcessedFile; hasCompressionIssue?: boolean; }
@@ -49,11 +52,6 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const removeToast = useCallback((id: string) => { setToasts(prev => prev.filter(t => t.id !== id)); }, []);
-  const generateSecureId = (): string => {
-    const array = new Uint32Array(4);
-    crypto.getRandomValues(array);
-    return Array.from(array, (dec) => dec.toString(36).padStart(6, '0')).join('');
-  };
 
   const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
     const id = generateSecureId();
@@ -92,19 +90,20 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
   const addFiles = useCallback(async (files: FileList | File[], options?: { compress?: boolean; quality?: string }) => {
     const fileArray = Array.from(files);
 
-    // SECURITY FIX: Add file size validation to prevent memory exhaustion
-    const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10GB per file limit
-    const MAX_TOTAL_SIZE = 50 * 1024 * 1024 * 1024; // 50GB total limit
+    // Use centralized validation
     let totalSize = selectedFiles.reduce((acc, f) => acc + f.size, 0);
 
     // Validate all files before processing
     for (const file of fileArray) {
-      if (file.size > MAX_FILE_SIZE) {
-        addToast({ type: 'error', message: `File too large: ${file.name} (max 10GB)` });
+      const sizeValidation = validateFileSize(file.size);
+      if (!sizeValidation.valid) {
+        addToast({ type: 'error', message: `${sizeValidation.error}: ${file.name}` });
         return;
       }
-      if (totalSize + file.size > MAX_TOTAL_SIZE) {
-        addToast({ type: 'error', message: 'Total files exceed 50GB limit' });
+
+      const totalValidation = validateTotalSize(totalSize, file.size);
+      if (!totalValidation.valid) {
+        addToast({ type: 'error', message: totalValidation.error! });
         return;
       }
       totalSize += file.size;
@@ -225,7 +224,6 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
     enhancedWebRTC.cancelTransfer(id);
   }, []);
   const verifyPin = useCallback(async (pin: string): Promise<boolean> => {
-    // SECURITY FIX: Use secure hashing verification from storage service
     if (!settings.pinEnabled) return true;
     return await storageService.verifyPin(pin);
   }, [settings.pinEnabled]);
