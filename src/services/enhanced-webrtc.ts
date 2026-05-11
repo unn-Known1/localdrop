@@ -21,6 +21,30 @@ class EnhancedWebRTC {
   private activeReceiveFileId: string | null = null;
 
   constructor() { const info = signalingService.getLocalInfo(); this.localId = info.id; this.localName = info.name; }
+  private async* streamFileChunks(file: File, chunkSize: number) {
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, file.size);
+      const blob = file.slice(start, end);
+      const buffer = await blob.arrayBuffer();
+      yield { index: i, buffer };
+    }
+  }
+
+  private async waitForBufferLow(dataChannel: RTCDataChannel, limit = 1024 * 1024) {
+    if (dataChannel.bufferedAmount <= limit) return;
+    return new Promise<void>(resolve => {
+      const check = () => {
+        if (dataChannel.bufferedAmount <= limit) {
+          dataChannel.removeEventListener('bufferedamountlow', check);
+          resolve();
+        }
+      };
+      dataChannel.addEventListener('bufferedamountlow', check);
+    });
+  }
+
   private async hashChunk(data: ArrayBuffer): Promise<string> { const hashBuffer = await crypto.subtle.digest('SHA-256', data); const hashArray = Array.from(new Uint8Array(hashBuffer)); return hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); }
   private async verifyFileHash(fileId: string): Promise<boolean> { const fileInfo = this.pendingFiles.get(fileId); const chunks = this.receivedChunks.get(fileId); if (!fileInfo || !chunks || !fileInfo.hash) return true; const totalLength = chunks.reduce((acc, chunk) => acc + chunk.byteLength, 0); const combined = new Uint8Array(totalLength); let offset = 0; for (const chunk of chunks) { combined.set(new Uint8Array(chunk), offset); offset += chunk.byteLength; } const fileHash = await this.hashChunk(combined.buffer); return fileHash === fileInfo.hash; }
 
@@ -226,14 +250,14 @@ class EnhancedWebRTC {
     };
     const id = fileId || generateSecureId();
     const totalChunks = Math.ceil(file.size / FILE_LIMITS.CHUNK_SIZE);
-    const arrayBuffer = await file.arrayBuffer();
-    const hash = await this.hashChunk(arrayBuffer);
     const state: TransferState = { fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'upload' };
     this.transferStates.set(id, state);
-    peer.dataChannel.send(JSON.stringify({ type: 'file-info', fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, hash }));
-    for (let i = 0; i < totalChunks; i++) {
+    peer.dataChannel.send(JSON.stringify({ type: 'file-info', fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks }));
+
+    for await (const chunk of this.streamFileChunks(file, FILE_LIMITS.CHUNK_SIZE)) {
       const currentState = this.transferStates.get(id);
       if (!currentState || currentState.status === 'cancelled') break;
+
       if (currentState.status === 'paused') {
         await new Promise<void>(resolve => {
           const checkPause = setInterval(() => {
@@ -243,11 +267,22 @@ class EnhancedWebRTC {
           }, 100);
         });
       }
+
       const latestState = this.transferStates.get(id);
       if (!latestState || latestState.status === 'cancelled') break;
-      const start = i * FILE_LIMITS.CHUNK_SIZE; const end = Math.min(start + FILE_LIMITS.CHUNK_SIZE, file.size);
-      peer.dataChannel.send(JSON.stringify({ type: 'file-chunk', fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, chunkIndex: i, totalChunks }));
-      peer.dataChannel.send(arrayBuffer.slice(start, end));
+
+      // Prepare packet with 4-byte index header
+      const packet = new Uint8Array(4 + chunk.buffer.byteLength);
+      const view = new DataView(packet.buffer);
+      view.setUint32(0, chunk.index, false);
+      packet.set(new Uint8Array(chunk.buffer), 4);
+
+      peer.dataChannel.send(packet.buffer);
+
+      // Throttle if buffer is full (16MB default limit)
+      if (peer.dataChannel.bufferedAmount > 16 * 1024 * 1024) {
+        await this.waitForBufferLow(peer.dataChannel);
+      }
     }
     const finalState = this.transferStates.get(id);
     if (finalState && finalState.status !== 'cancelled') {
