@@ -23,6 +23,8 @@
 
 LocalDrop is a modern, high-performance web application designed for secure and instant file sharing between devices on the same network. Built with **WebRTC**, it establishes direct device-to-device connections, ensuring your data never touches the cloud.
 
+[Live Demo](https://unn-known1.github.io/localdrop/)
+
 ## ✨ Key Features
 
 - 🔒 **Privacy First**: Direct P2P transfers using WebRTC DataChannels. Your files are never stored on any server.
