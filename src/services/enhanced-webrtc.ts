@@ -1,10 +1,10 @@
 // Enhanced WebRTC Service with Chunked Transfer, Pause/Resume, and Hash Verification
 import { signalingService } from './signaling';
 import { FILE_LIMITS } from '../config/limits';
+import { ICE_SERVERS } from '../config/ice';
 import { sanitizeFileName } from '../utils/sanitize';
 import { TransferError } from '../utils/errors';
 
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }];
 export interface FileInfo { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; hash?: string; }
 export interface ChunkProgress { fileId: string; chunkIndex: number; received: boolean; hash?: string; }
 export interface TransferState { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; receivedChunks: ChunkProgress[]; status: 'pending' | 'paused' | 'transferring' | 'complete' | 'failed' | 'verifying' | 'cancelled'; progress: number; speed: number; startTime?: number; deviceId: string; direction: 'upload' | 'download'; error?: string; }
