@@ -1,6 +1,9 @@
 // Enhanced WebRTC Service with Chunked Transfer, Pause/Resume, and Hash Verification
 import { signalingService, Device } from './signaling';
-const CHUNK_SIZE = 262144;
+import { FILE_LIMITS } from '../config/limits';
+import { sanitizeFileName } from '../utils/sanitize';
+import { TransferError } from '../utils/errors';
+
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }];
 export interface FileInfo { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; hash?: string; }
 export interface ChunkProgress { fileId: string; chunkIndex: number; received: boolean; hash?: string; }
@@ -78,25 +81,24 @@ class EnhancedWebRTC {
   }
 
   private handleFileInfo(message: any, deviceId: string) {
-    // CWE-20: Validate file metadata from untrusted peer
-    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
     if (!message.fileId || typeof message.fileId !== 'string') return;
-    if (!message.fileName || typeof message.fileName !== 'string' || message.fileName.length > 255) return;
-    if (!message.fileSize || message.fileSize <= 0 || message.fileSize > MAX_FILE_SIZE) {
+    const fileName = sanitizeFileName(message.fileName);
+    if (!fileName) return;
+    if (!message.fileSize || message.fileSize <= 0 || message.fileSize > FILE_LIMITS.MAX_FILE_SIZE) {
       console.error(`Invalid file size: ${message.fileSize}`);
       return;
     }
-    // Validate totalChunks is reasonable
-    const expectedChunks = Math.ceil(message.fileSize / CHUNK_SIZE);
+    const expectedChunks = Math.ceil(message.fileSize / FILE_LIMITS.CHUNK_SIZE);
     if (message.totalChunks !== expectedChunks || message.totalChunks > 10000) {
       console.error(`Invalid chunk count: ${message.totalChunks} (expected: ${expectedChunks})`);
       return;
     }
 
-    const fileInfo: FileInfo = { fileId: message.fileId, fileName: message.fileName, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, hash: message.hash };
+    // Use sanitized fileName
+    const fileInfo: FileInfo = { fileId: message.fileId, fileName, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, hash: message.hash };
     this.pendingFiles.set(message.fileId, fileInfo);
     this.receivedChunks.set(message.fileId, []);
-    const state: TransferState = { fileId: message.fileId, fileName: message.fileName, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'download' };
+    const state: TransferState = { fileId: message.fileId, fileName, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'download' };
     this.transferStates.set(message.fileId, state);
     this.callbacks.get(deviceId)?.onProgress?.(state);
     this.activeReceiveFileId = message.fileId;
@@ -153,7 +155,7 @@ class EnhancedWebRTC {
       state.progress = progress;
       state.receivedChunks.push({ fileId, chunkIndex, received: true });
       const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000;
-      state.speed = (receivedCount * CHUNK_SIZE) / elapsed;
+      state.speed = (receivedCount * FILE_LIMITS.CHUNK_SIZE) / elapsed;
       this.callbacks.get(deviceId)?.onProgress?.(state);
     }
     const peer = this.peers.get(deviceId);
@@ -195,7 +197,7 @@ class EnhancedWebRTC {
 
   private handleFilePause(message: any) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'paused'; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
   private handleFileResume(message: any) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'transferring'; state.startTime = Date.now(); this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
-  private handleChunkAck(message: any) { const state = this.transferStates.get(message.fileId); if (state && state.direction === 'upload') { const ackIndex = message.chunkIndex; state.progress = ((ackIndex + 1) / state.totalChunks) * 100; const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000; state.speed = ((ackIndex + 1) * CHUNK_SIZE) / elapsed; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
+  private handleChunkAck(message: any) { const state = this.transferStates.get(message.fileId); if (state && state.direction === 'upload') { const ackIndex = message.chunkIndex; state.progress = ((ackIndex + 1) / state.totalChunks) * 100; const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000; state.speed = ((ackIndex + 1) * FILE_LIMITS.CHUNK_SIZE) / elapsed; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
   private handleFileCancel(message: any) { 
     if (this.activeReceiveFileId === message.fileId) {
       this.activeReceiveFileId = null;
@@ -204,14 +206,18 @@ class EnhancedWebRTC {
   }
 
   async sendFile(file: File, deviceId: string, fileId?: string): Promise<string> {
-    // CWE-400: Validate file size to prevent memory exhaustion
-    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
-    if (file.size > MAX_FILE_SIZE) {
-      throw new Error(`File too large. Maximum size: ${MAX_FILE_SIZE} bytes (100MB)`);
+    if (file.size > FILE_LIMITS.MAX_FILE_SIZE) {
+      throw new TransferError(
+        `File too large. Maximum size: ${FILE_LIMITS.MAX_FILE_SIZE / (1024*1024*1024)}GB`,
+        'FILE_TOO_LARGE',
+        { fileSize: file.size, maxSize: FILE_LIMITS.MAX_FILE_SIZE }
+      );
     }
 
     const peer = this.peers.get(deviceId);
-    if (!peer?.dataChannel || peer.dataChannel.readyState !== 'open') throw new Error('Peer not connected');
+    if (!peer?.dataChannel || peer.dataChannel.readyState !== 'open') {
+      throw new TransferError('Peer not connected', 'NOT_CONNECTED');
+    }
     // Use crypto for secure file ID generation if no fileId provided
     const generateSecureId = (): string => {
       const array = new Uint32Array(4);
@@ -219,7 +225,7 @@ class EnhancedWebRTC {
       return Array.from(array, (dec) => dec.toString(36).padStart(6, '0')).join('');
     };
     const id = fileId || generateSecureId();
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const totalChunks = Math.ceil(file.size / FILE_LIMITS.CHUNK_SIZE);
     const arrayBuffer = await file.arrayBuffer();
     const hash = await this.hashChunk(arrayBuffer);
     const state: TransferState = { fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'upload' };
@@ -240,7 +246,7 @@ class EnhancedWebRTC {
       }
       const latestState = this.transferStates.get(id);
       if (!latestState || latestState.status === 'cancelled') break;
-      const start = i * CHUNK_SIZE; const end = Math.min(start + CHUNK_SIZE, file.size);
+      const start = i * FILE_LIMITS.CHUNK_SIZE; const end = Math.min(start + FILE_LIMITS.CHUNK_SIZE, file.size);
       peer.dataChannel.send(JSON.stringify({ type: 'file-chunk', fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, chunkIndex: i, totalChunks }));
       peer.dataChannel.send(arrayBuffer.slice(start, end));
     }
