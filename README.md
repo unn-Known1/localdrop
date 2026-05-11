@@ -47,7 +47,13 @@ LocalDrop is a modern, high-performance web application designed for secure and 
 
 ## 🚀 Quick Start
 
-### ⚡ One-Command Launch (Recommended)
+### 🪄 One-Liner Install & Launch
+Run this in your terminal to clone, install, and launch everything in one go:
+```bash
+curl -sSL https://raw.githubusercontent.com/unn-Known1/localdrop/main/install.sh | bash
+```
+
+### ⚡ One-Command Launch (if already cloned)
 Run this in your terminal to automatically install, build, and launch:
 ```bash
 ./launch.sh
