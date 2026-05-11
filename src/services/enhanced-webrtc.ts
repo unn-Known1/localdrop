@@ -1,5 +1,5 @@
 // Enhanced WebRTC Service with Chunked Transfer, Pause/Resume, and Hash Verification
-import { signalingService, Device } from './signaling';
+import { signalingService } from './signaling';
 import { FILE_LIMITS } from '../config/limits';
 import { sanitizeFileName } from '../utils/sanitize';
 import { TransferError } from '../utils/errors';
@@ -62,14 +62,14 @@ class EnhancedWebRTC {
     channel.onerror = (error) => { console.error('Data channel error:', error); };
   }
 
-  private async handleDataMessage(data: any, deviceId: string) {
+  private async handleDataMessage(data: ArrayBuffer | string, deviceId: string) {
     try {
       if (data instanceof ArrayBuffer) await this.handleBinaryChunk(data, deviceId);
       else if (typeof data === 'string') { const message = JSON.parse(data); await this.handleControlMessage(message, deviceId); }
     } catch (error) { console.error('Error handling data message:', error); }
   }
 
-  private async handleControlMessage(message: any, deviceId: string) {
+  private async handleControlMessage(message: { type: string; [key: string]: unknown }, deviceId: string) {
     switch (message.type) {
       case 'file-info': this.handleFileInfo(message, deviceId); break;
       case 'file-complete': await this.handleFileComplete(message, deviceId); break;
@@ -80,7 +80,7 @@ class EnhancedWebRTC {
     }
   }
 
-  private handleFileInfo(message: any, deviceId: string) {
+  private handleFileInfo(message: { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; hash?: string }, deviceId: string) {
     if (!message.fileId || typeof message.fileId !== 'string') return;
     const fileName = sanitizeFileName(message.fileName);
     if (!fileName) return;
@@ -139,7 +139,7 @@ class EnhancedWebRTC {
 
     // Ensure array is large enough and store chunk at correct index
     while (received.length < chunkIndex) {
-      received.push(null as any); // Fill gaps with null placeholders
+      received.push(null as unknown as ArrayBuffer); // Fill gaps with null placeholders
     }
 
     // SECURITY: Prevent duplicate chunk overwrite - only accept first chunk at each index
@@ -162,7 +162,7 @@ class EnhancedWebRTC {
     peer?.dataChannel?.send(JSON.stringify({ type: 'chunk-ack', fileId, chunkIndex }));
   }
 
-  private async handleFileComplete(message: any, deviceId: string) {
+  private async handleFileComplete(message: { fileId: string }, deviceId: string) {
     const fileId = message.fileId;
     const state = this.transferStates.get(fileId);
     if (state) {
@@ -195,14 +195,14 @@ class EnhancedWebRTC {
     }
   }
 
-  private handleFilePause(message: any) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'paused'; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
-  private handleFileResume(message: any) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'transferring'; state.startTime = Date.now(); this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
-  private handleChunkAck(message: any) { const state = this.transferStates.get(message.fileId); if (state && state.direction === 'upload') { const ackIndex = message.chunkIndex; state.progress = ((ackIndex + 1) / state.totalChunks) * 100; const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000; state.speed = ((ackIndex + 1) * FILE_LIMITS.CHUNK_SIZE) / elapsed; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
-  private handleFileCancel(message: any) { 
+  private handleFilePause(message: { fileId: string }) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'paused'; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
+  private handleFileResume(message: { fileId: string }) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'transferring'; state.startTime = Date.now(); this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
+  private handleChunkAck(message: { fileId: string; chunkIndex: number }) { const state = this.transferStates.get(message.fileId); if (state && state.direction === 'upload') { const ackIndex = message.chunkIndex; state.progress = ((ackIndex + 1) / state.totalChunks) * 100; const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000; state.speed = ((ackIndex + 1) * FILE_LIMITS.CHUNK_SIZE) / elapsed; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
+  private handleFileCancel(message: { fileId: string }) {
     if (this.activeReceiveFileId === message.fileId) {
       this.activeReceiveFileId = null;
     }
-    this.cleanup(message.fileId); 
+    this.cleanup(message.fileId);
   }
 
   async sendFile(file: File, deviceId: string, fileId?: string): Promise<string> {
@@ -231,7 +231,6 @@ class EnhancedWebRTC {
     const state: TransferState = { fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'upload' };
     this.transferStates.set(id, state);
     peer.dataChannel.send(JSON.stringify({ type: 'file-info', fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, hash }));
-    let offset = 0;
     for (let i = 0; i < totalChunks; i++) {
       const currentState = this.transferStates.get(id);
       if (!currentState || currentState.status === 'cancelled') break;

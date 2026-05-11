@@ -266,7 +266,7 @@ class StorageService {
   }
 
   // Settings operations
-  async saveSetting(key: string, value: any): Promise<void> {
+  async saveSetting<T>(key: string, value: T): Promise<void> {
     const db = await this.ensureDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(['settings'], 'readwrite');
@@ -379,7 +379,16 @@ class StorageService {
     });
   }
 
-  async getPendingTransfers(): Promise<any[]> {
+  async getPendingTransfers(): Promise<Array<{
+    id: string;
+    deviceId: string;
+    deviceName: string;
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    fileData?: Blob;
+    timestamp: number;
+  }>> {
     const db = await this.ensureDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(['pendingTransfers'], 'readonly');

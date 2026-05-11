@@ -3,6 +3,7 @@ import { FILE_LIMITS } from '../config/limits';
 /**
  * Characters not allowed in file names across platforms
  */
+// eslint-disable-next-line no-control-regex
 const FORBIDDEN_CHARS = /[<>:"/\\|?*\x00-\x1f]/g;
 
 /**

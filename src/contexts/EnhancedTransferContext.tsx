@@ -4,9 +4,8 @@ import { enhancedWebRTC } from '../services/enhanced-webrtc';
 import { storageService, StoredDevice, TransferRecord, AppSettings, Statistics } from '../services/storage';
 import { notificationService } from '../services/notifications';
 import { fileProcessor, ProcessedFile } from '../services/fileProcessor';
-import { FILE_LIMITS, validateFileSize, validateTotalSize } from '../config/limits';
+import { validateFileSize, validateTotalSize } from '../config/limits';
 import { generateSecureId } from '../services/crypto';
-import { TransferError } from '../utils/errors';
 
 export interface Device { id: string; name: string; type: 'mobile' | 'desktop'; status: 'discovered' | 'connecting' | 'connected' | 'disconnected'; nickname?: string; isFavorite?: boolean; signalStrength?: number; lastConnected?: number; }
 export interface SelectedFile { id: string; file: File; thumbnail?: string; size: number; type: string; width?: number; height?: number; duration?: number; processed?: ProcessedFile; hasCompressionIssue?: boolean; }
@@ -50,6 +49,8 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
   const [isPinVerified, setIsPinVerified] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const devicesRef = React.useRef<Device[]>([]);
+  useEffect(() => { devicesRef.current = devices; }, [devices]);
 
   const removeToast = useCallback((id: string) => { setToasts(prev => prev.filter(t => t.id !== id)); }, []);
 
@@ -79,11 +80,11 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
       onDeviceDiscovered: (device: SignalingDevice) => { setDevices(prev => { const exists = prev.find(d => d.id === device.id); if (exists) return prev.map(d => d.id === device.id ? { ...d, ...device } : d); return [...prev, device]; }); addToast({ type: 'info', message: `Found: ${device.name}` }); },
       onDeviceConnected: (device: SignalingDevice) => { setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: 'connected' } : d)); notificationService.playSound('device-connected'); storageService.saveDevice({ id: device.id, name: device.name, type: device.type, lastConnected: Date.now(), totalTransfers: 0, totalBytesTransferred: 0, isFavorite: false }); loadSavedDevices(); },
       onDeviceDisconnected: (deviceId: string) => { setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'disconnected' } : d)); },
-      onSignalReceived: async (message) => { if (message.type === 'offer') { await enhancedWebRTC.handleOffer(message.payload, message.from, devices.find(d => d.id === message.from)?.name || 'Unknown', devices.find(d => d.id === message.from)?.type || 'desktop'); } else if (message.type === 'answer') { await enhancedWebRTC.handleAnswer(message.payload, message.from); } else if (message.type === 'ice-candidate') { await enhancedWebRTC.handleIceCandidate(message.payload, message.from); } },
+      onSignalReceived: async (message) => { if (message.type === 'offer') { await enhancedWebRTC.handleOffer(message.payload, message.from, devicesRef.current.find(d => d.id === message.from)?.name || 'Unknown', devicesRef.current.find(d => d.id === message.from)?.type || 'desktop'); } else if (message.type === 'answer') { await enhancedWebRTC.handleAnswer(message.payload, message.from); } else if (message.type === 'ice-candidate') { await enhancedWebRTC.handleIceCandidate(message.payload, message.from); } },
     });
     loadSavedDevices(); loadSettings(); loadStatistics(); loadTransferHistory();
     return () => signalingService.stop();
-  }, []);
+  }, [loadSavedDevices, loadSettings, loadStatistics, loadTransferHistory, addToast]);
 
   const connectToDevice = useCallback(async (deviceId: string) => { const device = devices.find(d => d.id === deviceId); if (!device) return; setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'connecting' } : d)); try { await enhancedWebRTC.createPeer(deviceId, device.name, device.type); } catch { setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'discovered' } : d)); addToast({ type: 'error', message: 'Failed to connect' }); } }, [devices, addToast]);
   const disconnectDevice = useCallback((deviceId: string) => { enhancedWebRTC.removePeer(deviceId); signalingService.disconnect(deviceId); setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'discovered' } : d)); if (selectedDevice?.id === deviceId) setSelectedDevice(null); }, [selectedDevice]);
@@ -150,7 +151,7 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
       newFiles.push({ id, file: finalFile, thumbnail, size: processed?.processedSize || file.size, type: file.type, width: info.width, height: info.height, duration: info.duration, processed, hasCompressionIssue: compressionFailed });
     }
     setSelectedFiles(prev => [...prev, ...newFiles]);
-  }, [settings.defaultQuality, addToast]);
+  }, [settings.defaultQuality, addToast, selectedFiles]);
   const removeFile = useCallback((id: string) => { setSelectedFiles(prev => { const file = prev.find(f => f.id === id); if (file?.thumbnail) URL.revokeObjectURL(file.thumbnail); return prev.filter(f => f.id !== id); }); }, []);
   const clearFiles = useCallback(() => { setSelectedFiles(prev => { prev.forEach(f => { if (f.thumbnail) URL.revokeObjectURL(f.thumbnail); }); return []; }); setProcessedFiles(new Map()); }, []);
   const previewFile = useCallback((id: string) => { const file = selectedFiles.find(f => f.id === id); if (file) { const url = URL.createObjectURL(file.file); window.open(url, '_blank'); } }, [selectedFiles]);
