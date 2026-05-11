@@ -4,6 +4,7 @@ import { FILE_LIMITS } from '../config/limits';
 import { ICE_SERVERS } from '../config/ice';
 import { sanitizeFileName } from '../utils/sanitize';
 import { TransferError } from '../utils/errors';
+import { saveTransferProgress, getTransferProgress, clearTransferProgress } from './resumable-transfer';
 
 export interface FileInfo { fileId: string; fileName: string; relativePath?: string; fileSize: number; fileType: string; totalChunks: number; hash?: string; }
 export interface ChunkProgress { fileId: string; chunkIndex: number; received: boolean; hash?: string; }
@@ -221,7 +222,25 @@ class EnhancedWebRTC {
 
   private handleFilePause(message: { fileId: string }) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'paused'; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
   private handleFileResume(message: { fileId: string }) { const state = this.transferStates.get(message.fileId); if (state) { state.status = 'transferring'; state.startTime = Date.now(); this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
-  private handleChunkAck(message: { fileId: string; chunkIndex: number }) { const state = this.transferStates.get(message.fileId); if (state && state.direction === 'upload') { const ackIndex = message.chunkIndex; state.progress = ((ackIndex + 1) / state.totalChunks) * 100; const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000; state.speed = ((ackIndex + 1) * FILE_LIMITS.CHUNK_SIZE) / elapsed; this.callbacks.get(state.deviceId)?.onProgress?.(state); } }
+  private handleChunkAck(message: { fileId: string; chunkIndex: number }) {
+    const state = this.transferStates.get(message.fileId);
+    if (state && state.direction === 'upload') {
+      const ackIndex = message.chunkIndex;
+      state.progress = ((ackIndex + 1) / state.totalChunks) * 100;
+      const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000;
+      state.speed = ((ackIndex + 1) * FILE_LIMITS.CHUNK_SIZE) / elapsed;
+
+      // Persist progress for resume capability
+      saveTransferProgress(message.fileId, {
+        fileId: message.fileId,
+        chunkIndex: ackIndex + 1,
+        totalChunks: state.totalChunks,
+        timestamp: Date.now()
+      }).catch(err => console.error('Failed to save transfer progress:', err));
+
+      this.callbacks.get(state.deviceId)?.onProgress?.(state);
+    }
+  }
   private handleFileCancel(message: { fileId: string }) {
     if (this.activeReceiveFileId === message.fileId) {
       this.activeReceiveFileId = null;
@@ -254,7 +273,12 @@ class EnhancedWebRTC {
     this.transferStates.set(id, state);
     peer.dataChannel.send(JSON.stringify({ type: 'file-info', fileId: id, fileName: file.name, relativePath, fileSize: file.size, fileType: file.type, totalChunks }));
 
+    const savedProgress = await getTransferProgress(id);
+    const startChunk = savedProgress ? savedProgress.chunkIndex : 0;
+
     for await (const chunk of this.streamFileChunks(file, FILE_LIMITS.CHUNK_SIZE)) {
+      if (chunk.index < startChunk) continue;
+
       const currentState = this.transferStates.get(id);
       if (!currentState || currentState.status === 'cancelled') break;
 
@@ -287,6 +311,7 @@ class EnhancedWebRTC {
     const finalState = this.transferStates.get(id);
     if (finalState && finalState.status !== 'cancelled') {
       peer.dataChannel.send(JSON.stringify({ type: 'file-complete', fileId: id }));
+      await clearTransferProgress(id);
     }
     return id;
   }

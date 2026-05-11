@@ -266,12 +266,19 @@ class StorageService {
   }
 
   // Settings operations
-  async saveSetting<T>(key: string, value: T): Promise<void> {
+  async saveSetting<T>(key: string, value: T | null): Promise<void> {
     const db = await this.ensureDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(['settings'], 'readwrite');
       const store = transaction.objectStore('settings');
-      const request = store.put({ key, value });
+
+      let request;
+      if (value === null) {
+        request = store.delete(key);
+      } else {
+        request = store.put({ key, value });
+      }
+
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
     });
