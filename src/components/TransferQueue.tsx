@@ -4,7 +4,9 @@ import {
   Check, Clock, Wifi, HardDrive, AlertCircle, FileText,
   Image, Film, FolderOpen
 } from 'lucide-react';
-import { useTransfer, Transfer } from '../contexts/EnhancedTransferContext';
+import { useTransfers } from '../hooks/useTransfers';
+import { useDevices } from '../hooks/useDevices';
+import { Transfer } from '../types';
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -147,7 +149,8 @@ function TransferItem({ transfer, onPause, onResume, onCancel, onRetry }: Transf
 }
 
 export function TransferQueue() {
-  const { transfers, pauseTransfer, resumeTransfer, cancelTransfer, selectedDevice, sendFiles } = useTransfer();
+  const { transfers, pauseTransfer, resumeTransfer, cancelTransfer, sendFiles } = useTransfers();
+  const { selectedDevice } = useDevices();
   const [isExpanded, setIsExpanded] = useState(true);
 
   const activeTransfers = transfers.filter(t => t.status === 'transferring');

@@ -1,11 +1,13 @@
 import React from 'react';
 import { X, Settings, User, Bell, Shield, Palette, Zap, HardDrive } from 'lucide-react';
-import { useTransfer } from '../contexts/EnhancedTransferContext';
+import { useSettings } from '../hooks/useSettings';
+import { useDevices } from '../hooks/useDevices';
 
 interface SettingsPanelProps { isOpen: boolean; onClose: () => void; }
 
 export function EnhancedSettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
-  const { settings, updateSettings, localName, setLocalName, requestNotificationPermission, notificationsEnabled } = useTransfer();
+  const { settings, updateSettings, requestNotificationPermission, notificationsEnabled } = useSettings();
+  const { localName, setLocalName } = useDevices();
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

@@ -1,11 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
-import { useTransfer } from '../contexts/EnhancedTransferContext';
+import { useDevices } from '../hooks/useDevices';
 
 interface QRModalProps { isOpen: boolean; onClose: () => void; }
 
 export function QRModal({ isOpen, onClose }: QRModalProps) {
-  const { localId, localName } = useTransfer();
+  const { localId, localName } = useDevices();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {

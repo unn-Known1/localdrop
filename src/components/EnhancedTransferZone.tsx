@@ -1,9 +1,25 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { Upload, Image, Film, FileText, X, Send, Pause, Play, Trash2, FolderOpen, Camera, Grid3X3, Archive, Maximize2, Eye, AlertCircle } from 'lucide-react';
-import { useTransfer } from '../contexts/EnhancedTransferContext';
+import { useTransfers } from '../hooks/useTransfers';
+import { useDevices } from '../hooks/useDevices';
+import { useSettings } from '../hooks/useSettings';
 
 export function EnhancedTransferZone() {
-  const { selectedFiles, addFiles, removeFile, clearFiles, selectedDevice, sendFiles, transfers, pauseTransfer, resumeTransfer, cancelTransfer, settings, updateSettings, previewFile, processedFiles } = useTransfer();
+  const {
+    selectedFiles,
+    addFiles,
+    removeFile,
+    clearFiles,
+    sendFiles,
+    transfers,
+    pauseTransfer,
+    resumeTransfer,
+    cancelTransfer,
+    previewFile,
+    processedFiles
+  } = useTransfers();
+  const { selectedDevice } = useDevices();
+  const { settings, updateSettings } = useSettings();
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [compressionQuality, setCompressionQuality] = useState(settings.defaultQuality);

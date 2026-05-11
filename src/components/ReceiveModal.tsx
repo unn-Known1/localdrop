@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { X, Check, Copy, CheckCheck, Loader2 } from 'lucide-react';
-import { useTransfer } from '../contexts/EnhancedTransferContext';
+import { useDevices } from '../hooks/useDevices';
 
 interface ReceiveModalProps { isOpen: boolean; onClose: () => void; }
 
 export function ReceiveModal({ isOpen, onClose }: ReceiveModalProps) {
-  const { localId, localName } = useTransfer();
+  const { localId, localName } = useDevices();
   const [mode, setMode] = useState<'show' | 'enter'>('show');
   const [code, setCode] = useState('');
   const [copied, setCopied] = useState(false);

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { X, Lock, Check } from 'lucide-react';
-import { useTransfer } from '../contexts/EnhancedTransferContext';
+import { useSettings } from '../hooks/useSettings';
 
 interface PinModalProps { isOpen: boolean; onClose: () => void; mode: 'enter' | 'setup'; }
 
 export function PinModal({ isOpen, onClose, mode }: PinModalProps) {
-  const { verifyPin, setPin, disablePin, settings } = useTransfer();
+  const { verifyPin, setPin, disablePin, settings } = useSettings();
   const [pin, setPinInput] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState('');

@@ -1,11 +1,13 @@
 import React from 'react';
 import { X, TrendingUp, TrendingDown, Clock, Files, HardDrive, Zap, Activity } from 'lucide-react';
-import { useTransfer } from '../contexts/EnhancedTransferContext';
+import { useTransfers } from '../hooks/useTransfers';
+import { useSettings } from '../hooks/useSettings';
 
 interface StatisticsPanelProps { isOpen: boolean; onClose: () => void; }
 
 export function StatisticsPanel({ isOpen, onClose }: StatisticsPanelProps) {
-  const { transfers, statistics, transferHistory, clearTransferHistory } = useTransfer();
+  const { transfers, transferHistory, clearTransferHistory } = useTransfers();
+  const { statistics } = useSettings();
   if (!isOpen) return null;
   const formatBytes = (bytes: number): string => { if (bytes === 0) return '0 B'; const k = 1024; const sizes = ['B', 'KB', 'MB', 'GB', 'TB']; const i = Math.floor(Math.log(bytes) / Math.log(k)); return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]; };
   const formatSpeed = (bytesPerSecond: number): string => { const mbps = (bytesPerSecond * 8) / 1000000; return mbps.toFixed(1) + ' Mbps'; };

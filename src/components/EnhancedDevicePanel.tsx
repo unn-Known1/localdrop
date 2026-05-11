@@ -1,12 +1,24 @@
 import React, { useState } from 'react';
 import { Smartphone, Monitor, Wifi, WifiOff, Star, MoreVertical, X, RefreshCw, Trash2, QrCode, Download, History } from 'lucide-react';
-import { useTransfer } from '../contexts/EnhancedTransferContext';
+import { useDevices } from '../hooks/useDevices';
+import { useTransfers } from '../hooks/useTransfers';
 import { QRModal } from './QRModal';
 import { ReceiveModal } from './ReceiveModal';
 import { TransferHistory } from './TransferHistory';
 
 export function EnhancedDevicePanel() {
-  const { devices, savedDevices, selectedDevice, setSelectedDevice, connectToDevice, disconnectDevice, removeSavedDevice, toggleFavoriteDevice, renameDevice, loadTransferHistory } = useTransfer();
+  const {
+    devices,
+    savedDevices,
+    selectedDevice,
+    setSelectedDevice,
+    connectToDevice,
+    disconnectDevice,
+    removeSavedDevice,
+    toggleFavoriteDevice,
+    renameDevice
+  } = useDevices();
+  const { loadTransferHistory } = useTransfers();
   const [showQR, setShowQR] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
   const [showHistory, setShowHistory] = useState(false);

@@ -1,9 +1,9 @@
 import React from 'react';
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react';
-import { useTransfer } from '../contexts/EnhancedTransferContext';
+import { useTransfers } from '../hooks/useTransfers';
 
 export function ToastContainer() {
-  const { toasts, removeToast } = useTransfer();
+  const { toasts, removeToast } = useTransfers();
 
   const icons = {
     success: CheckCircle,

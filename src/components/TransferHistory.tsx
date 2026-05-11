@@ -1,9 +1,9 @@
 import React from 'react';
 import { Check, X, Trash2, ChevronUp, ChevronDown, Clock } from 'lucide-react';
-import { useTransfer } from '../contexts/EnhancedTransferContext';
+import { useTransfers } from '../hooks/useTransfers';
 
 export function TransferHistory() {
-  const { transfers, clearCompletedTransfers } = useTransfer();
+  const { transfers, clearCompletedTransfers } = useTransfers();
   const [isExpanded, setIsExpanded] = React.useState(false);
   const completedTransfers = transfers.filter(t => t.status === 'complete');
   const failedTransfers = transfers.filter(t => t.status === 'failed');
