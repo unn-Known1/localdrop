@@ -13,7 +13,7 @@ interface Toast { id: string; type: 'success' | 'error' | 'warning' | 'info'; me
 
 interface TransferContextType {
   selectedFiles: SelectedFile[];
-  addFiles: (files: FileList | File[], options?: { compress?: boolean; quality?: string }) => Promise<void>;
+  addFiles: (files: FileList | File[] | { file: File, relativePath?: string }[], options?: { compress?: boolean; quality?: string }) => Promise<void>;
   removeFile: (id: string) => void;
   clearFiles: () => void;
   previewFile: (id: string) => void;

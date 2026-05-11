@@ -95,7 +95,7 @@ export function EnhancedTransferZone() {
       </div>
       <div className={`relative flex-shrink-0 rounded-3xl border-2 border-dashed transition-all min-h-[200px] ${isDragging ? 'border-blue-500 bg-blue-500/10' : selectedFiles.length > 0 ? 'border-blue-500/50 bg-[#1f2937]/50' : 'border-white/10 bg-[#111827]/30'}`} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}>
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
-        <input ref={folderInputRef} type="file" webkitdirectory="" mozdirectory="" directory="" className="hidden" onChange={handleFileSelect} />
+        <input ref={folderInputRef} type="file" {...{ webkitdirectory: "", mozdirectory: "", directory: "" } as any} className="hidden" onChange={handleFileSelect} />
         <div className="h-full flex flex-col items-center justify-center p-8" onClick={() => fileInputRef.current?.click()}>
           <div className={`relative mb-4 w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center ${isDragging ? 'scale-110' : ''}`}>
             {isProcessing ? <div className="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" /> : <Upload className="w-10 h-10 text-blue-400" />}
