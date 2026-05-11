@@ -36,12 +36,47 @@ export function EnhancedTransferZone() {
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); };
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) { setIsProcessing(true); await addFiles(files as any, { compress: enableCompression, quality: compressionQuality }); setTimeout(() => setIsProcessing(false), 500); }
+    const items = Array.from(e.dataTransfer.items);
+    if (items.length > 0) {
+      setIsProcessing(true);
+      const files: { file: File, relativePath?: string }[] = [];
+
+      const traverseFileTree = async (item: any, path = '') => {
+        if (item.isFile) {
+          const file = await new Promise<File>((resolve) => item.file(resolve));
+          files.push({ file, relativePath: path + file.name });
+        } else if (item.isDirectory) {
+          const dirReader = item.createReader();
+          const entries = await new Promise<any[]>((resolve) => dirReader.readEntries(resolve));
+          for (const entry of entries) {
+            await traverseFileTree(entry, path + item.name + '/');
+          }
+        }
+      };
+
+      for (const item of items) {
+        const entry = item.webkitGetAsEntry();
+        if (entry) await traverseFileTree(entry);
+      }
+
+      if (files.length > 0) {
+        await addFiles(files, { compress: enableCompression, quality: compressionQuality });
+      }
+      setTimeout(() => setIsProcessing(false), 500);
+    }
   };
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) { setIsProcessing(true); await addFiles(e.target.files, { compress: enableCompression, quality: compressionQuality }); setTimeout(() => setIsProcessing(false), 500); }
+    if (e.target.files && e.target.files.length > 0) {
+      setIsProcessing(true);
+      const files = Array.from(e.target.files).map(file => ({
+        file,
+        relativePath: (file as any).webkitRelativePath || undefined
+      }));
+      await addFiles(files, { compress: enableCompression, quality: compressionQuality });
+      setTimeout(() => setIsProcessing(false), 500);
+    }
     if (fileInputRef.current) fileInputRef.current.value = '';
+    if (folderInputRef.current) folderInputRef.current.value = '';
   };
 
   const formatFileSize = (bytes: number): string => { if (bytes === 0) return '0 B'; const k = 1024; const sizes = ['B', 'KB', 'MB', 'GB']; const i = Math.floor(Math.log(bytes) / Math.log(k)); return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]; };
@@ -58,16 +93,18 @@ export function EnhancedTransferZone() {
           <button onClick={() => { setEnableCompression(!enableCompression); updateSettings({ compressionEnabled: !enableCompression }); }} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs ${enableCompression ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'}`}><Archive className="w-3 h-3" />Compress</button>
         </div>
       </div>
-      <div className={`relative flex-shrink-0 rounded-3xl border-2 border-dashed transition-all min-h-[200px] ${isDragging ? 'border-blue-500 bg-blue-500/10' : selectedFiles.length > 0 ? 'border-blue-500/50 bg-[#1f2937]/50' : 'border-white/10 bg-[#111827]/30'}`} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()}>
-        <input ref={fileInputRef} type="file" multiple accept="image/*,video/*,*" className="hidden" onChange={handleFileSelect} />
-        <div className="h-full flex flex-col items-center justify-center p-8">
+      <div className={`relative flex-shrink-0 rounded-3xl border-2 border-dashed transition-all min-h-[200px] ${isDragging ? 'border-blue-500 bg-blue-500/10' : selectedFiles.length > 0 ? 'border-blue-500/50 bg-[#1f2937]/50' : 'border-white/10 bg-[#111827]/30'}`} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}>
+        <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
+        <input ref={folderInputRef} type="file" webkitdirectory="" mozdirectory="" directory="" className="hidden" onChange={handleFileSelect} />
+        <div className="h-full flex flex-col items-center justify-center p-8" onClick={() => fileInputRef.current?.click()}>
           <div className={`relative mb-4 w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center ${isDragging ? 'scale-110' : ''}`}>
             {isProcessing ? <div className="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" /> : <Upload className="w-10 h-10 text-blue-400" />}
           </div>
-          <h2 className="text-xl font-semibold text-white mb-2">{isProcessing ? 'Processing...' : isDragging ? 'Drop files here' : 'Drag & drop files here'}</h2>
-          <p className="text-gray-400 text-sm">or click to browse</p>
-          <div className="flex items-center gap-3 mt-4">
-            <button onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 text-sm"><FolderOpen className="w-4 h-4" />Browse</button>
+          <h2 className="text-xl font-semibold text-white mb-2">{isProcessing ? 'Processing...' : isDragging ? 'Drop files or folders here' : 'Drag & drop here'}</h2>
+          <p className="text-gray-400 text-sm mb-4">or click to browse</p>
+          <div className="flex items-center gap-3">
+            <button onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 text-sm"><FileText className="w-4 h-4" />Files</button>
+            <button onClick={(e) => { e.stopPropagation(); folderInputRef.current?.click(); }} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 text-sm"><FolderOpen className="w-4 h-4" />Folder</button>
           </div>
         </div>
       </div>

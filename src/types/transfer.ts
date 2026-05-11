@@ -4,6 +4,7 @@ import type { ProcessedFile } from '../services/fileProcessor';
 export interface SelectedFile {
   id: string;
   file: File;
+  relativePath?: string;
   thumbnail?: string;
   size: number;
   type: string;
@@ -17,6 +18,7 @@ export interface SelectedFile {
 export interface Transfer {
   id: string;
   fileName: string;
+  relativePath?: string;
   fileSize: number;
   fileType: string;
   direction: 'upload' | 'download';

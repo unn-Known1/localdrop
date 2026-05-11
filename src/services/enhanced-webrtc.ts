@@ -5,9 +5,9 @@ import { ICE_SERVERS } from '../config/ice';
 import { sanitizeFileName } from '../utils/sanitize';
 import { TransferError } from '../utils/errors';
 
-export interface FileInfo { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; hash?: string; }
+export interface FileInfo { fileId: string; fileName: string; relativePath?: string; fileSize: number; fileType: string; totalChunks: number; hash?: string; }
 export interface ChunkProgress { fileId: string; chunkIndex: number; received: boolean; hash?: string; }
-export interface TransferState { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; receivedChunks: ChunkProgress[]; status: 'pending' | 'paused' | 'transferring' | 'complete' | 'failed' | 'verifying' | 'cancelled'; progress: number; speed: number; startTime?: number; deviceId: string; direction: 'upload' | 'download'; error?: string; }
+export interface TransferState { fileId: string; fileName: string; relativePath?: string; fileSize: number; fileType: string; totalChunks: number; receivedChunks: ChunkProgress[]; status: 'pending' | 'paused' | 'transferring' | 'complete' | 'failed' | 'verifying' | 'cancelled'; progress: number; speed: number; startTime?: number; deviceId: string; direction: 'upload' | 'download'; error?: string; }
 export interface PeerConnection { id: string; name: string; type: 'mobile' | 'desktop'; status: 'connecting' | 'connected' | 'disconnected'; connection?: RTCPeerConnection; dataChannel?: RTCDataChannel; signalStrength?: number; }
 export type TransferCallback = { onProgress?: (state: TransferState) => void; onComplete?: (fileId: string, file: File) => void; onError?: (fileId: string, error: string) => void; onVerificationComplete?: (fileId: string, verified: boolean) => void; };
 class EnhancedWebRTC {
@@ -104,7 +104,7 @@ class EnhancedWebRTC {
     }
   }
 
-  private handleFileInfo(message: { fileId: string; fileName: string; fileSize: number; fileType: string; totalChunks: number; hash?: string }, deviceId: string) {
+  private handleFileInfo(message: { fileId: string; fileName: string; relativePath?: string; fileSize: number; fileType: string; totalChunks: number; hash?: string }, deviceId: string) {
     if (!message.fileId || typeof message.fileId !== 'string') return;
     const fileName = sanitizeFileName(message.fileName);
     if (!fileName) return;
@@ -119,10 +119,10 @@ class EnhancedWebRTC {
     }
 
     // Use sanitized fileName
-    const fileInfo: FileInfo = { fileId: message.fileId, fileName, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, hash: message.hash };
+    const fileInfo: FileInfo = { fileId: message.fileId, fileName, relativePath: message.relativePath, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, hash: message.hash };
     this.pendingFiles.set(message.fileId, fileInfo);
     this.receivedChunks.set(message.fileId, []);
-    const state: TransferState = { fileId: message.fileId, fileName, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'download' };
+    const state: TransferState = { fileId: message.fileId, fileName, relativePath: message.relativePath, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'download' };
     this.transferStates.set(message.fileId, state);
     this.callbacks.get(deviceId)?.onProgress?.(state);
     this.activeReceiveFileId = message.fileId;
@@ -229,7 +229,7 @@ class EnhancedWebRTC {
     this.cleanup(message.fileId);
   }
 
-  async sendFile(file: File, deviceId: string, fileId?: string): Promise<string> {
+  async sendFile(file: File, deviceId: string, fileId?: string, relativePath?: string): Promise<string> {
     if (file.size > FILE_LIMITS.MAX_FILE_SIZE) {
       throw new TransferError(
         `File too large. Maximum size: ${FILE_LIMITS.MAX_FILE_SIZE / (1024*1024*1024)}GB`,
@@ -250,9 +250,9 @@ class EnhancedWebRTC {
     };
     const id = fileId || generateSecureId();
     const totalChunks = Math.ceil(file.size / FILE_LIMITS.CHUNK_SIZE);
-    const state: TransferState = { fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'upload' };
+    const state: TransferState = { fileId: id, fileName: file.name, relativePath, fileSize: file.size, fileType: file.type, totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'upload' };
     this.transferStates.set(id, state);
-    peer.dataChannel.send(JSON.stringify({ type: 'file-info', fileId: id, fileName: file.name, fileSize: file.size, fileType: file.type, totalChunks }));
+    peer.dataChannel.send(JSON.stringify({ type: 'file-info', fileId: id, fileName: file.name, relativePath, fileSize: file.size, fileType: file.type, totalChunks }));
 
     for await (const chunk of this.streamFileChunks(file, FILE_LIMITS.CHUNK_SIZE)) {
       const currentState = this.transferStates.get(id);

@@ -79,11 +79,16 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
     setTransfers(prev => prev.filter(t => t.status !== 'complete'));
   }, []);
 
-  const addFiles = useCallback(async (files: FileList | File[], options?: { compress?: boolean; quality?: string }) => {
-    const fileArray = Array.from(files);
+  const addFiles = useCallback(async (files: FileList | File[] | { file: File, relativePath?: string }[], options?: { compress?: boolean; quality?: string }) => {
+    const fileArray = Array.from(files).map(f => {
+      if (f instanceof File) return { file: f, relativePath: undefined };
+      if ('file' in f) return f;
+      return { file: f as File, relativePath: undefined };
+    });
     let totalSize = selectedFiles.reduce((acc, f) => acc + f.size, 0);
 
-    for (const file of fileArray) {
+    for (const item of fileArray) {
+      const file = item.file;
       const sizeValidation = validateFileSize(file.size);
       if (!sizeValidation.valid) {
         addToast({ type: 'error', message: `${sizeValidation.error}: ${file.name}` });
@@ -99,7 +104,9 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
     }
 
     const newFiles: SelectedFile[] = [];
-    for (const file of fileArray) {
+    for (const item of fileArray) {
+      const file = item.file;
+      const relativePath = item.relativePath;
       const id = generateSecureId();
       const info = await fileProcessor.getFileInfo(file);
       let thumbnail: string | undefined;
@@ -127,7 +134,7 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
       const finalFile = processed?.file instanceof File ? processed.file : (processed?.file ? new File([processed.file], file.name, { type: processed.file.type || file.type, lastModified: Date.now() }) : file);
 
       newFiles.push({
-        id, file: finalFile, thumbnail,
+        id, file: finalFile, relativePath, thumbnail,
         size: processed?.processedSize || file.size,
         type: file.type, width: info.width, height: info.height,
         duration: info.duration, processed, hasCompressionIssue: compressionFailed
@@ -231,7 +238,7 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
         };
         setTransfers(prev => [...prev, transfer]);
         try {
-          await enhancedWebRTC.sendFile(selectedFile.file, device.id, transferId);
+          await enhancedWebRTC.sendFile(selectedFile.file, device.id, transferId, selectedFile.relativePath);
         } catch {
           setTransfers(prev => {
             const transfer = prev.find(t => t.id === transferId);
