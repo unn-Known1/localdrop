@@ -81,19 +81,12 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
 
   const addFiles = useCallback(async (files: FileList | File[] | { file: File, relativePath?: string }[], options?: { compress?: boolean; quality?: string }) => {
     // Normalize files to a common structure: { file: File, relativePath?: string }[]
-    const fileArray: { file: File, relativePath?: string }[] = [];
-
-    if (files instanceof FileList || Array.isArray(files)) {
-      for (const item of Array.from(files)) {
-        if (item instanceof File) {
-          fileArray.push({ file: item });
-        } else if ('file' in item) {
-          fileArray.push(item);
-        } else {
-          fileArray.push({ file: item as File });
-        }
-      }
-    }
+    const rawFiles: any[] = Array.isArray(files) ? files : Array.from(files as any);
+    const fileArray: { file: File; relativePath?: string }[] = rawFiles.map(f => {
+      if (f instanceof File) return { file: f, relativePath: undefined };
+      if (f && typeof f === 'object' && 'file' in f) return f;
+      return { file: f as File, relativePath: undefined };
+    });
 
     let totalSize = selectedFiles.reduce((acc, f) => acc + f.size, 0);
 
