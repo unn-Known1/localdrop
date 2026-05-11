@@ -122,7 +122,7 @@ class SignalingService {
   private handleConnect(message: SignalMessage) { const device = this.discoveredDevices.get(message.from); if (device) { device.status = 'connected'; this.onDeviceConnected?.(device); } }
   private handleDisconnect(message: SignalMessage) { const device = this.discoveredDevices.get(message.from); if (device) { device.status = 'disconnected'; this.onDeviceDisconnected?.(message.from); } }
   private calculateSignalStrength(lastSeen: number): number { const age = Date.now() - lastSeen; if (age < 1000) return 100; if (age < 5000) return 80; if (age < 10000) return 60; if (age < 30000) return 40; return 20; }
-  private cleanupStaleDevices() { const now = Date.now(); for (const [id, device] of this.discoveredDevices) { if (now - device.lastSeen > 60000) { this.discoveredDevices.delete(id); this.onDeviceDisconnected?.(id); } } }
+  private cleanupStaleDevices() { const now = Date.now(); for (const [id, device] of this.discoveredDevices) { if (device.lastSeen && now - device.lastSeen > 60000) { this.discoveredDevices.delete(id); this.onDeviceDisconnected?.(id); } } }
   connect(deviceId: string) { const message: SignalMessage = { type: 'connect', from: this.localId, to: deviceId, timestamp: Date.now() }; this.sendMessage(message); }
   disconnect(deviceId: string) { const message: SignalMessage = { type: 'disconnect', from: this.localId, to: deviceId, timestamp: Date.now() }; this.sendMessage(message); }
   sendSignal(toId: string, signal: Partial<SignalMessage>) { const message: SignalMessage = { type: signal.type as any, from: this.localId, to: toId, payload: signal.payload, timestamp: Date.now() }; this.sendMessage(message); }

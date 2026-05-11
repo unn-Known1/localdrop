@@ -8,6 +8,9 @@ export interface Device {
   isFavorite?: boolean;
   signalStrength?: number;
   lastConnected?: number;
+  lastSeen?: number;
+  avatar?: string;
+  ipAddress?: string;
 }
 
 export interface StoredDevice {

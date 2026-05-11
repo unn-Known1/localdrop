@@ -1,13 +1,6 @@
-export interface Device {
-  id: string;
-  name: string;
-  type: 'mobile' | 'desktop';
-  status: 'discovered' | 'connecting' | 'connected' | 'disconnected';
-  lastSeen: number;
-  avatar?: string;
-  signalStrength?: number;
-  ipAddress?: string;
-}
+import { Device as BaseDevice } from './device';
+
+export type Device = BaseDevice;
 
 export interface SignalMessage {
   type: 'offer' | 'answer' | 'ice-candidate' | 'discovery' | 'ping' | 'pong' | 'connect' | 'disconnect';

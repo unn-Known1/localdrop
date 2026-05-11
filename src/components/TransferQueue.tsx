@@ -150,7 +150,7 @@ function TransferItem({ transfer, onPause, onResume, onCancel, onRetry }: Transf
 
 export function TransferQueue() {
   const { transfers, pauseTransfer, resumeTransfer, cancelTransfer, sendFiles } = useTransfers();
-  const { selectedDevice } = useDevices();
+  const { selectedDeviceIds, devices } = useDevices();
   const [isExpanded, setIsExpanded] = useState(true);
 
   const activeTransfers = transfers.filter(t => t.status === 'transferring');
@@ -163,7 +163,8 @@ export function TransferQueue() {
 
   const handleRetry = (transferId: string) => {
     const transfer = transfers.find(t => t.id === transferId);
-    if (transfer && selectedDevice?.status === 'connected') {
+    const isDeviceConnected = devices.find(d => d.id === transfer?.deviceId)?.status === 'connected';
+    if (transfer && isDeviceConnected) {
       cancelTransfer(transferId);
       sendFiles();
     }

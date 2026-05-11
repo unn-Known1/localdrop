@@ -11,8 +11,9 @@ interface DeviceContextType {
   setLocalName: (name: string) => void;
   devices: Device[];
   savedDevices: StoredDevice[];
-  selectedDevice: Device | null;
-  setSelectedDevice: (device: Device | null) => void;
+  selectedDeviceIds: string[];
+  setSelectedDeviceIds: (ids: string[]) => void;
+  toggleDeviceSelection: (deviceId: string) => void;
   connectToDevice: (deviceId: string) => Promise<void>;
   disconnectDevice: (deviceId: string) => void;
   removeSavedDevice: (id: string) => void;
@@ -32,7 +33,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   const [devices, setDevices] = useState<Device[]>([]);
   const devicesRef = useRef<Device[]>([]);
   const [savedDevices, setSavedDevices] = useState<StoredDevice[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
 
   useEffect(() => {
@@ -102,8 +103,16 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     enhancedWebRTC.removePeer(deviceId);
     signalingService.disconnect(deviceId);
     setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'discovered' } : d));
-    if (selectedDevice?.id === deviceId) setSelectedDevice(null);
-  }, [selectedDevice]);
+    setSelectedDeviceIds(prev => prev.filter(id => id !== deviceId));
+  }, []);
+
+  const toggleDeviceSelection = useCallback((deviceId: string) => {
+    setSelectedDeviceIds(prev =>
+      prev.includes(deviceId)
+        ? prev.filter(id => id !== deviceId)
+        : [...prev, deviceId]
+    );
+  }, []);
 
   const removeSavedDevice = useCallback((id: string) => {
     storageService.deleteDevice(id);
@@ -121,7 +130,8 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   return (
     <DeviceContext.Provider value={{
       localId, localName, setLocalName,
-      devices, savedDevices, selectedDevice, setSelectedDevice,
+      devices, savedDevices, selectedDeviceIds, setSelectedDeviceIds,
+      toggleDeviceSelection,
       connectToDevice, disconnectDevice,
       removeSavedDevice, toggleFavoriteDevice, renameDevice,
       isScanning, startScanning: () => setIsScanning(true), stopScanning: () => setIsScanning(false)

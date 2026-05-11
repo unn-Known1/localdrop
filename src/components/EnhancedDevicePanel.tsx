@@ -10,8 +10,8 @@ export function EnhancedDevicePanel() {
   const {
     devices,
     savedDevices,
-    selectedDevice,
-    setSelectedDevice,
+    selectedDeviceIds,
+    toggleDeviceSelection,
     connectToDevice,
     disconnectDevice,
     removeSavedDevice,
@@ -63,10 +63,10 @@ export function EnhancedDevicePanel() {
                   {devices.map((device) => {
                     const Icon = getDeviceIcon(device.type);
                     return (
-                      <div key={device.id} onClick={() => device.status !== 'connected' ? connectToDevice(device.id) : setSelectedDevice(device)} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${selectedDevice?.id === device.id ? 'bg-blue-500/20 border border-blue-500/30' : 'bg-[#1f2937] hover:bg-[#1f2937]/80'}`}>
+                      <div key={device.id} onClick={() => device.status !== 'connected' ? connectToDevice(device.id) : toggleDeviceSelection(device.id)} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${selectedDeviceIds.includes(device.id) ? 'bg-blue-500/20 border border-blue-500/30' : 'bg-[#1f2937] hover:bg-[#1f2937]/80'}`}>
                         <div className="relative"><Icon className="w-6 h-6 text-gray-400" /><span className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ${getStatusColor(device.status)}`} /></div>
                         <div className="flex-1 min-w-0"><p className="text-white text-sm truncate">{device.name}</p><p className="text-xs text-gray-400 capitalize">{device.status}</p></div>
-                        {device.status === 'connected' && <div className="w-2 h-2 rounded-full bg-emerald-500" />}
+                        {device.status === 'connected' && <div className={`w-4 h-4 rounded-full flex items-center justify-center border ${selectedDeviceIds.includes(device.id) ? 'bg-blue-500 border-blue-500' : 'border-gray-500'}`}>{selectedDeviceIds.includes(device.id) && <div className="w-2 h-2 rounded-full bg-white" />}</div>}
                       </div>
                     );
                   })}

@@ -18,8 +18,11 @@ export function EnhancedTransferZone() {
     previewFile,
     processedFiles
   } = useTransfers();
-  const { selectedDevice } = useDevices();
+  const { devices, selectedDeviceIds } = useDevices();
   const { settings, updateSettings } = useSettings();
+
+  const selectedDevices = devices.filter(d => selectedDeviceIds.includes(d.id));
+  const connectedDevicesCount = selectedDevices.filter(d => d.status === 'connected').length;
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [compressionQuality, setCompressionQuality] = useState(settings.defaultQuality);
@@ -77,7 +80,7 @@ export function EnhancedTransferZone() {
             </div>
             <div className="flex items-center gap-2">
               <button onClick={clearFiles} className="px-4 py-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 text-sm">Clear</button>
-              <button onClick={sendFiles} disabled={!selectedDevice || selectedDevice.status !== 'connected'} className={`flex items-center gap-2 px-5 py-2 rounded-xl font-medium ${selectedDevice?.status === 'connected' ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white' : 'bg-gray-600 text-gray-400 cursor-not-allowed'}`}><Send className="w-4 h-4" />Send</button>
+              <button onClick={sendFiles} disabled={connectedDevicesCount === 0} className={`flex items-center gap-2 px-5 py-2 rounded-xl font-medium ${connectedDevicesCount > 0 ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white' : 'bg-gray-600 text-gray-400 cursor-not-allowed'}`}><Send className="w-4 h-4" />Send {connectedDevicesCount > 1 ? `(${connectedDevicesCount} devices)` : ''}</button>
             </div>
           </div>
           <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 max-h-64 overflow-y-auto">
