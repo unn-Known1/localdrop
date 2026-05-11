@@ -3,14 +3,14 @@
 
 interface ChunkMessage {
   type: 'hashChunk' | 'hashFile' | 'splitChunks';
-  data: any;
+  data: ArrayBuffer | File | { file: File; chunkSize: number };
   id: string;
 }
 
 interface ChunkResponse {
   type: 'hashChunkResult' | 'hashFileResult' | 'chunk' | 'done' | 'error';
   id: string;
-  data?: any;
+  data?: string | { chunk: ArrayBuffer; index: number; total: number };
   error?: string;
 }
 
@@ -49,19 +49,19 @@ self.onmessage = async (e: MessageEvent<ChunkMessage>) => {
   try {
     switch (type) {
       case 'hashChunk': {
-        const hash = await hashChunk(data);
+        const hash = await hashChunk(data as ArrayBuffer);
         self.postMessage({ type: 'hashChunkResult', id, data: hash } as ChunkResponse);
         break;
       }
-      
+
       case 'hashFile': {
-        const hash = await hashFile(data);
+        const hash = await hashFile(data as File);
         self.postMessage({ type: 'hashFileResult', id, data: hash } as ChunkResponse);
         break;
       }
-      
+
       case 'splitChunks': {
-        const { file, chunkSize } = data;
+        const { file, chunkSize } = data as { file: File; chunkSize: number };
         const totalChunks = Math.ceil(file.size / chunkSize);
         
         for await (const chunkData of splitIntoChunks(file, chunkSize)) {

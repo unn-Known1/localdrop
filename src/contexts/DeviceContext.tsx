@@ -76,11 +76,11 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       onSignalReceived: async (message) => {
         const device = devicesRef.current.find(d => d.id === message.from);
         if (message.type === 'offer') {
-          await enhancedWebRTC.handleOffer(message.payload, message.from, device?.name || 'Unknown', device?.type || 'desktop');
+          await enhancedWebRTC.handleOffer(message.payload as RTCSessionDescriptionInit, message.from, device?.name || 'Unknown', device?.type || 'desktop');
         } else if (message.type === 'answer') {
-          await enhancedWebRTC.handleAnswer(message.payload, message.from);
+          await enhancedWebRTC.handleAnswer(message.payload as RTCSessionDescriptionInit, message.from);
         } else if (message.type === 'ice-candidate') {
-          await enhancedWebRTC.handleIceCandidate(message.payload, message.from);
+          await enhancedWebRTC.handleIceCandidate(message.payload as RTCIceCandidateInit, message.from);
         }
       },
     });

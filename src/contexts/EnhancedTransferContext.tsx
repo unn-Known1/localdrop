@@ -13,7 +13,7 @@ interface Toast { id: string; type: 'success' | 'error' | 'warning' | 'info'; me
 
 interface TransferContextType {
   selectedFiles: SelectedFile[];
-  addFiles: (files: FileList | File[] | { file: File, relativePath?: string }[], options?: { compress?: boolean; quality?: string }) => Promise<void>;
+  addFiles: (files: FileList | File[] | { file: File, relativePath?: string }[], options?: { compress?: boolean; quality?: 'original' | 'high' | 'medium' | 'low' }) => Promise<void>;
   removeFile: (id: string) => void;
   clearFiles: () => void;
   previewFile: (id: string) => void;
@@ -79,9 +79,9 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
     setTransfers(prev => prev.filter(t => t.status !== 'complete'));
   }, []);
 
-  const addFiles = useCallback(async (files: FileList | File[] | { file: File, relativePath?: string }[], options?: { compress?: boolean; quality?: string }) => {
+  const addFiles = useCallback(async (files: FileList | File[] | { file: File, relativePath?: string }[], options?: { compress?: boolean; quality?: 'original' | 'high' | 'medium' | 'low' }) => {
     // Normalize files to a common structure: { file: File, relativePath?: string }[]
-    const rawFiles: any[] = Array.isArray(files) ? files : Array.from(files as any);
+    const rawFiles: (File | { file: File, relativePath?: string })[] = Array.isArray(files) ? files : Array.from(files);
     const fileArray: { file: File; relativePath?: string }[] = rawFiles.map(f => {
       if (f instanceof File) return { file: f, relativePath: undefined };
       if (f && typeof f === 'object' && 'file' in f) return f;

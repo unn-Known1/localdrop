@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Lock, Check } from 'lucide-react';
+import { X, Lock } from 'lucide-react';
 import { useSettings } from '../hooks/useSettings';
 
 interface PinModalProps { isOpen: boolean; onClose: () => void; mode: 'enter' | 'setup'; }

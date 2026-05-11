@@ -56,7 +56,7 @@ class SignalingService {
     this.onDeviceConnected = options?.onDeviceConnected;
     this.onDeviceDisconnected = options?.onDeviceDisconnected;
     this.onSignalReceived = options?.onSignalReceived;
-    try { this.broadcastChannel = new BroadcastChannel('localdrop-signaling'); this.broadcastChannel.onmessage = (event) => { this.handleMessage(event.data); }; } catch (e) { console.warn('BroadcastChannel not supported'); }
+    try { this.broadcastChannel = new BroadcastChannel('localdrop-signaling'); this.broadcastChannel.onmessage = (event) => { this.handleMessage(event.data); }; } catch { console.warn('BroadcastChannel not supported'); }
     wsSignaling.connect((msg) => this.handleMessage(msg));
     this.broadcastPresence();
     this.pingInterval = window.setInterval(() => { this.broadcastPresence(); }, 5000);
@@ -86,10 +86,10 @@ class SignalingService {
       if (typeof localStorage !== 'undefined') {
         const key = `localdrop_${message.type}_${message.to}_${message.timestamp}`;
         localStorage.setItem(key, JSON.stringify(message));
-        setTimeout(() => { try { localStorage.removeItem(key); } catch (e) {} }, 5000);
+        setTimeout(() => { try { localStorage.removeItem(key); } catch { /* ignore */ } }, 5000);
       }
       wsSignaling.send(message);
-    } catch (error) { console.error('Failed to send message:', error); }
+    } catch { console.error('Failed to send message'); }
   }
 
   private handleMessage(message: SignalMessage) {
@@ -106,11 +106,12 @@ class SignalingService {
 
   private handleStorageEvent = (event: StorageEvent) => {
     if (!event.key?.startsWith('localdrop_')) return;
-    try { const message = JSON.parse(event.newValue || ''); if (message && typeof message === 'object') this.handleMessage(message); } catch (error) {}
+    try { const message = JSON.parse(event.newValue || ''); if (message && typeof message === 'object') this.handleMessage(message); } catch { /* ignore */ }
   };
 
   private handleDiscovery(message: SignalMessage) {
-    const device: Device = { id: message.from, name: message.payload?.name || 'Unknown', type: message.payload?.type || 'desktop', status: 'discovered', lastSeen: message.timestamp };
+    const payload = message.payload as { name?: string; type?: 'mobile' | 'desktop' } | undefined;
+    const device: Device = { id: message.from, name: payload?.name || 'Unknown', type: payload?.type || 'desktop', status: 'discovered', lastSeen: message.timestamp };
     const existingDevice = this.discoveredDevices.get(device.id);
     if (!existingDevice) { this.discoveredDevices.set(device.id, device); this.onDeviceDiscovered?.(device); } else { existingDevice.lastSeen = message.timestamp; existingDevice.name = device.name; existingDevice.type = device.type; }
     this.sendPong(message.from);
@@ -125,7 +126,7 @@ class SignalingService {
   private cleanupStaleDevices() { const now = Date.now(); for (const [id, device] of this.discoveredDevices) { if (device.lastSeen && now - device.lastSeen > 60000) { this.discoveredDevices.delete(id); this.onDeviceDisconnected?.(id); } } }
   connect(deviceId: string) { const message: SignalMessage = { type: 'connect', from: this.localId, to: deviceId, timestamp: Date.now() }; this.sendMessage(message); }
   disconnect(deviceId: string) { const message: SignalMessage = { type: 'disconnect', from: this.localId, to: deviceId, timestamp: Date.now() }; this.sendMessage(message); }
-  sendSignal(toId: string, signal: Partial<SignalMessage>) { const message: SignalMessage = { type: signal.type as any, from: this.localId, to: toId, payload: signal.payload, timestamp: Date.now() }; this.sendMessage(message); }
+  sendSignal(toId: string, signal: Partial<SignalMessage>) { const message: SignalMessage = { type: signal.type as SignalMessage['type'], from: this.localId, to: toId, payload: signal.payload, timestamp: Date.now() }; this.sendMessage(message); }
   getDevices(): Device[] { return Array.from(this.discoveredDevices.values()); }
   getDevice(id: string): Device | undefined { return this.discoveredDevices.get(id); }
   getLocalInfo() { this.initialize(); return { id: this.localId || 'unknown', name: this.localName || 'Device', type: this.localType }; }

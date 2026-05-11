@@ -10,21 +10,21 @@ export interface ChunkWorkerOptions {
 
 export interface ChunkMessage {
   type: 'hashChunk' | 'hashFile' | 'splitChunks';
-  data: any;
+  data: ArrayBuffer | File | { file: File; chunkSize: number };
   id: string;
 }
 
 export interface ChunkResponse {
   type: 'hashChunkResult' | 'hashFileResult' | 'chunk' | 'done' | 'error';
   id: string;
-  data?: any;
+  data?: string | { chunk: ArrayBuffer; index: number; total: number };
   error?: string;
 }
 
 class ChunkWorkerManager {
   private worker: Worker | null = null;
   private pendingRequests: Map<string, {
-    resolve: (value: any) => void;
+    resolve: (value: string | undefined | void) => void;
     reject: (error: Error) => void;
     onProgress?: (progress: number) => void;
     onComplete?: (hash: string) => void;
@@ -66,20 +66,21 @@ class ChunkWorkerManager {
     
     switch (type) {
       case 'hashChunkResult':
-        pending.resolve(data);
+        pending.resolve(data as string);
         break;
       case 'hashFileResult':
-        pending.resolve(data);
+        pending.resolve(data as string);
         break;
       case 'chunk':
-        if (pending.onProgress) {
-          const progress = ((data.index + 1) / data.total) * 100;
+        if (pending.onProgress && data && typeof data === 'object' && 'index' in data && 'total' in data) {
+          const chunkData = data as { index: number; total: number };
+          const progress = ((chunkData.index + 1) / chunkData.total) * 100;
           pending.onProgress(progress);
         }
         break;
       case 'done':
         if (pending.onComplete) {
-          pending.onComplete(data);
+          pending.onComplete(data as string);
         }
         pending.resolve(undefined);
         break;
@@ -106,7 +107,10 @@ class ChunkWorkerManager {
     
     return new Promise((resolve, reject) => {
       const id = this.generateId();
-      this.pendingRequests.set(id, { resolve, reject });
+      this.pendingRequests.set(id, {
+        resolve: resolve as (value: string | void | undefined) => void,
+        reject
+      });
       this.worker!.postMessage({ type: 'hashChunk', data, id } as ChunkMessage);
     });
   }
@@ -120,8 +124,8 @@ class ChunkWorkerManager {
     
     return new Promise((resolve, reject) => {
       const id = this.generateId();
-      this.pendingRequests.set(id, { 
-        resolve, 
+      this.pendingRequests.set(id, {
+        resolve: resolve as (value: string | void | undefined) => void,
         reject,
         onProgress: options?.onProgress,
         onComplete: options?.onComplete,
@@ -143,17 +147,10 @@ class ChunkWorkerManager {
     }
     
     const id = this.generateId();
-    let resolver: (value: IteratorResult<{ chunk: ArrayBuffer; index: number; total: number }>) => void;
-    let rejecter: (error: Error) => void;
-    let buffer: { chunk: ArrayBuffer; index: number; total: number }[] = [];
+    const buffer: { chunk: ArrayBuffer; index: number; total: number }[] = [];
     let done = false;
     let error: Error | null = null;
-    
-    const promise = new Promise<IteratorResult<{ chunk: ArrayBuffer; index: number; total: number }>>((resolve, reject) => {
-      resolver = resolve;
-      rejecter = reject;
-    });
-    
+
     this.pendingRequests.set(id, {
       resolve: () => {},
       reject: (err) => { error = err; },
@@ -180,11 +177,11 @@ class ChunkWorkerManager {
       }
       
       if (type === 'chunk') {
-        buffer.push(data);
+        buffer.push(data as { chunk: ArrayBuffer; index: number; total: number });
       } else if (type === 'done') {
         done = true;
       } else if (type === 'error') {
-        error = new Error(data);
+        error = new Error(data as string);
       }
     };
     

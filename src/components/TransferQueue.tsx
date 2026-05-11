@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { 
-  Upload, Download, Pause, Play, X, RotateCcw, 
-  Check, Clock, Wifi, HardDrive, AlertCircle, FileText,
-  Image, Film, FolderOpen
+import {
+  Upload, Download, Pause, Play, X, RotateCcw,
+  Check, Clock, Wifi, HardDrive, AlertCircle, FolderOpen
 } from 'lucide-react';
 import { useTransfers } from '../hooks/useTransfers';
 import { useDevices } from '../hooks/useDevices';
@@ -20,12 +19,6 @@ function formatSpeed(bytesPerSecond: number): string {
   return formatFileSize(bytesPerSecond) + '/s';
 }
 
-function getFileIcon(type: string) {
-  if (type.startsWith('image/')) return Image;
-  if (type.startsWith('video/')) return Film;
-  return FileText;
-}
-
 interface TransferItemProps {
   transfer: Transfer;
   onPause: (id: string) => void;
@@ -35,7 +28,6 @@ interface TransferItemProps {
 }
 
 function TransferItem({ transfer, onPause, onResume, onCancel, onRetry }: TransferItemProps) {
-  const Icon = getFileIcon(transfer.fileType);
   const isActive = transfer.status === 'transferring';
   const isPaused = transfer.status === 'paused';
   const isQueued = transfer.status === 'queued';
@@ -150,7 +142,7 @@ function TransferItem({ transfer, onPause, onResume, onCancel, onRetry }: Transf
 
 export function TransferQueue() {
   const { transfers, pauseTransfer, resumeTransfer, cancelTransfer, sendFiles } = useTransfers();
-  const { selectedDeviceIds, devices } = useDevices();
+  const { devices } = useDevices();
   const [isExpanded, setIsExpanded] = useState(true);
 
   const activeTransfers = transfers.filter(t => t.status === 'transferring');

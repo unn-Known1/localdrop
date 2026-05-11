@@ -132,9 +132,10 @@ class FileProcessor {
   async processVideo(
     file: File,
     options: CompressionOptions = {},
-    onProgress?: (progress: number) => void
+    _onProgress?: (progress: number) => void
   ): Promise<ProcessedFile> {
     const { quality = 'original' } = options;
+    if (_onProgress) { /* ignore */ }
 
     // For video, we can't do real-time compression in browser
     // Return original with a note about size

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smartphone, Monitor, Wifi, WifiOff, Star, MoreVertical, X, RefreshCw, Trash2, QrCode, Download, History } from 'lucide-react';
+import { Smartphone, Monitor, Star, RefreshCw, QrCode, Download, History } from 'lucide-react';
 import { useDevices } from '../hooks/useDevices';
 import { useTransfers } from '../hooks/useTransfers';
 import { QRModal } from './QRModal';
@@ -13,16 +13,12 @@ export function EnhancedDevicePanel() {
     selectedDeviceIds,
     toggleDeviceSelection,
     connectToDevice,
-    disconnectDevice,
-    removeSavedDevice,
-    toggleFavoriteDevice,
-    renameDevice
+    toggleFavoriteDevice
   } = useDevices();
   const { loadTransferHistory } = useTransfers();
   const [showQR, setShowQR] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [menuDevice, setMenuDevice] = useState<string | null>(null);
 
   const formatTime = (timestamp: number) => {
     const diff = Date.now() - timestamp;

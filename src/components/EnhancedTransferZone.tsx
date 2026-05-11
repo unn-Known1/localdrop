@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { Upload, Image, Film, FileText, X, Send, Pause, Play, Trash2, FolderOpen, Camera, Grid3X3, Archive, Maximize2, Eye, AlertCircle } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Upload, Image, Film, FileText, X, Send, Pause, Play, FolderOpen, Grid3X3, Archive, Maximize2, Eye } from 'lucide-react';
 import { useTransfers } from '../hooks/useTransfers';
 import { useDevices } from '../hooks/useDevices';
 import { useSettings } from '../hooks/useSettings';
@@ -15,8 +15,7 @@ export function EnhancedTransferZone() {
     pauseTransfer,
     resumeTransfer,
     cancelTransfer,
-    previewFile,
-    processedFiles
+    previewFile
   } = useTransfers();
   const { devices, selectedDeviceIds } = useDevices();
   const { settings, updateSettings } = useSettings();
@@ -25,7 +24,7 @@ export function EnhancedTransferZone() {
   const connectedDevicesCount = selectedDevices.filter(d => d.status === 'connected').length;
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [compressionQuality, setCompressionQuality] = useState(settings.defaultQuality);
+  const [compressionQuality] = useState(settings.defaultQuality);
   const [enableCompression, setEnableCompression] = useState(settings.compressionEnabled);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -41,13 +40,13 @@ export function EnhancedTransferZone() {
       setIsProcessing(true);
       const files: { file: File, relativePath?: string }[] = [];
 
-      const traverseFileTree = async (item: any, path = '') => {
+      const traverseFileTree = async (item: FileSystemEntry, path = '') => {
         if (item.isFile) {
-          const file = await new Promise<File>((resolve) => item.file(resolve));
+          const file = await new Promise<File>((resolve) => (item as FileSystemFileEntry).file(resolve));
           files.push({ file, relativePath: path + file.name });
         } else if (item.isDirectory) {
-          const dirReader = item.createReader();
-          const entries = await new Promise<any[]>((resolve) => dirReader.readEntries(resolve));
+          const dirReader = (item as FileSystemDirectoryEntry).createReader();
+          const entries = await new Promise<FileSystemEntry[]>((resolve) => dirReader.readEntries(resolve));
           for (const entry of entries) {
             await traverseFileTree(entry, path + item.name + '/');
           }
@@ -70,7 +69,7 @@ export function EnhancedTransferZone() {
       setIsProcessing(true);
       const files = Array.from(e.target.files).map(file => ({
         file,
-        relativePath: (file as any).webkitRelativePath || undefined
+        relativePath: (file as { webkitRelativePath?: string }).webkitRelativePath || undefined
       }));
       await addFiles(files, { compress: enableCompression, quality: compressionQuality });
       setTimeout(() => setIsProcessing(false), 500);
@@ -83,7 +82,6 @@ export function EnhancedTransferZone() {
   const getTotalSize = () => selectedFiles.reduce((acc, f) => acc + f.size, 0);
   const getFileIcon = (type: string) => { if (type.startsWith('image/')) return Image; if (type.startsWith('video/')) return Film; return FileText; };
   const activeTransfers = transfers.filter(t => t.status === 'transferring' || t.status === 'paused');
-  const failedTransfers = transfers.filter(t => t.status === 'failed');
 
   return (
     <div className="flex-1 flex flex-col p-4 pt-20">
@@ -95,7 +93,7 @@ export function EnhancedTransferZone() {
       </div>
       <div className={`relative flex-shrink-0 rounded-3xl border-2 border-dashed transition-all min-h-[200px] ${isDragging ? 'border-blue-500 bg-blue-500/10' : selectedFiles.length > 0 ? 'border-blue-500/50 bg-[#1f2937]/50' : 'border-white/10 bg-[#111827]/30'}`} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}>
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
-        <input ref={folderInputRef} type="file" {...{ webkitdirectory: "", mozdirectory: "", directory: "" } as any} className="hidden" onChange={handleFileSelect} />
+        <input ref={folderInputRef} type="file" {...{ webkitdirectory: "", mozdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement>} className="hidden" onChange={handleFileSelect} />
         <div className="h-full flex flex-col items-center justify-center p-8" onClick={() => fileInputRef.current?.click()}>
           <div className={`relative mb-4 w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center ${isDragging ? 'scale-110' : ''}`}>
             {isProcessing ? <div className="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" /> : <Upload className="w-10 h-10 text-blue-400" />}

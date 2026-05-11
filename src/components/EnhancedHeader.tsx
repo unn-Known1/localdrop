@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Wifi, WifiOff, Shield, Bell, Activity, Lock, Unlock, Scan, QrCode } from 'lucide-react';
+import { Wifi, WifiOff, Bell, Activity, Lock, Scan, QrCode } from 'lucide-react';
 import { useDevices } from '../hooks/useDevices';
 import { useSettings } from '../hooks/useSettings';
 import { PinModal } from './PinModal';
@@ -7,8 +7,8 @@ import { StatisticsPanel } from './StatisticsPanel';
 import { QRModal } from './QRModal';
 
 export function EnhancedHeader() {
-  const { localName, devices, isScanning, startScanning, stopScanning, localId } = useDevices();
-  const { settings, notificationsEnabled, requestNotificationPermission, isPinVerified } = useSettings();
+  const { localName, devices, isScanning, startScanning, stopScanning } = useDevices();
+  const { settings, requestNotificationPermission } = useSettings();
   const [showPinModal, setShowPinModal] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);

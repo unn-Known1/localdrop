@@ -28,7 +28,7 @@ export async function getAllTransferProgress(): Promise<TransferProgress[]> {
 
   for (const [key, value] of Object.entries(allSettings)) {
     if (key.startsWith(PROGRESS_KEY_PREFIX)) {
-      progressList.push((value as any).value as TransferProgress);
+      progressList.push((value as unknown as { value: TransferProgress }).value);
     }
   }
 

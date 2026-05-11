@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Check, Copy, CheckCheck, Loader2 } from 'lucide-react';
+import { X, Copy, CheckCheck } from 'lucide-react';
 import { useDevices } from '../hooks/useDevices';
 
 interface ReceiveModalProps { isOpen: boolean; onClose: () => void; }
@@ -13,7 +13,9 @@ export function ReceiveModal({ isOpen, onClose }: ReceiveModalProps) {
   const shareCode = btoa(JSON.stringify(deviceInfo)).substring(0, 8).toUpperCase();
 
   const handleCopy = async () => {
-    try { await navigator.clipboard.writeText(shareCode); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) {}
+    try { await navigator.clipboard.writeText(shareCode); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {
+      // Ignored
+    }
   };
 
   if (!isOpen) return null;
