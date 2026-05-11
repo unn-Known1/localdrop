@@ -69,14 +69,14 @@ class EnhancedWebRTC {
     } catch (error) { console.error('Error handling data message:', error); }
   }
 
-  private async handleControlMessage(message: { type: string; [key: string]: unknown }, deviceId: string) {
+  private async handleControlMessage(message: { type: string; [key: string]: any }, deviceId: string) {
     switch (message.type) {
-      case 'file-info': this.handleFileInfo(message, deviceId); break;
-      case 'file-complete': await this.handleFileComplete(message, deviceId); break;
-      case 'file-pause': this.handleFilePause(message); break;
-      case 'file-resume': this.handleFileResume(message); break;
-      case 'chunk-ack': this.handleChunkAck(message); break;
-      case 'file-cancel': this.handleFileCancel(message); break;
+      case 'file-info': this.handleFileInfo(message as any, deviceId); break;
+      case 'file-complete': await this.handleFileComplete(message as any, deviceId); break;
+      case 'file-pause': this.handleFilePause(message as any); break;
+      case 'file-resume': this.handleFileResume(message as any); break;
+      case 'chunk-ack': this.handleChunkAck(message as any); break;
+      case 'file-cancel': this.handleFileCancel(message as any); break;
     }
   }
 

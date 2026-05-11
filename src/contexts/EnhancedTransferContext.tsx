@@ -22,14 +22,14 @@ interface TransferContextType {
   transferHistory: TransferRecord[]; loadTransferHistory: () => Promise<void>; clearTransferHistory: () => Promise<void>; clearCompletedTransfers: () => void;
   settings: AppSettingsState; updateSettings: (settings: Partial<AppSettingsState>) => void; loadSettings: () => Promise<void>;
   statistics: Statistics; loadStatistics: () => Promise<void>;
-  isPinVerified: boolean; setPinVerified: (verified: boolean) => void; verifyPin: (pin: string) => boolean; setPin: (pin: string) => void; disablePin: () => void;
+  isPinVerified: boolean; setPinVerified: (verified: boolean) => void; verifyPin: (pin: string) => Promise<boolean>; setPin: (pin: string) => void; disablePin: () => void;
   notificationsEnabled: boolean; requestNotificationPermission: () => Promise<boolean>;
   toasts: Toast[]; addToast: (toast: Omit<Toast, 'id'>) => void; removeToast: (id: string) => void;
   isScanning: boolean; startScanning: () => void; stopScanning: () => void;
   removeSavedDevice: (id: string) => void; toggleFavoriteDevice: (id: string) => void; renameDevice: (id: string, name: string) => void;
 }
 const TransferContext = createContext<TransferContextType | null>(null);
-const defaultSettings: AppSettingsState = { pinEnabled: false, pin: '', autoAccept: false, theme: 'dark', defaultQuality: 'original', compressionEnabled: false, notifications: false, soundEnabled: true, vibrationEnabled: true, maxConcurrentTransfers: 3, chunkSize: 262144, showDetailedStats: true, deviceNickname: '' };
+const defaultSettings: AppSettingsState = { pinEnabled: false, pinHash: '', pinSalt: '', autoAccept: false, theme: 'dark', defaultQuality: 'original', compressionEnabled: false, notifications: false, soundEnabled: true, vibrationEnabled: true, maxConcurrentTransfers: 3, chunkSize: 262144, showDetailedStats: true, deviceNickname: '' };
 const defaultStatistics: Statistics = { totalFilesSent: 0, totalFilesReceived: 0, totalBytesSent: 0, totalBytesReceived: 0, averageSpeed: 0, peakSpeed: 0, sessionStart: Date.now(), totalSessions: 0 };
 
 export function TransferProvider({ children }: { children: React.ReactNode }) {
@@ -121,17 +121,14 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
         try {
           // Safely validate and convert quality parameter
           const qualityValue = options.quality;
-          let quality: number;
+          let quality: 'original' | 'high' | 'medium' | 'low';
 
           // Handle different quality input types safely
-          if (typeof qualityValue === 'number') {
-            quality = Math.max(0, Math.min(100, qualityValue));
-          } else if (typeof qualityValue === 'string') {
-            const parsed = parseInt(qualityValue, 10);
-            quality = isNaN(parsed) ? 80 : Math.max(0, Math.min(100, parsed));
+          if (qualityValue === 'original' || qualityValue === 'high' || qualityValue === 'medium' || qualityValue === 'low') {
+            quality = qualityValue;
           } else {
             // Default quality if not specified
-            quality = settings.defaultQuality === 'original' ? 100 : (parseInt(settings.defaultQuality, 10) || 80);
+            quality = settings.defaultQuality;
           }
 
           if (info.isImage) {
@@ -228,8 +225,8 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
     if (!settings.pinEnabled) return true;
     return await storageService.verifyPin(pin);
   }, [settings.pinEnabled]);
-  const setPin = useCallback((pin: string) => { updateSettings({ pin, pinEnabled: true }); setIsPinVerified(true); }, [updateSettings]);
-  const disablePin = useCallback(() => { updateSettings({ pin: '', pinEnabled: false }); setIsPinVerified(false); }, [updateSettings]);
+  const setPin = useCallback((pin: string) => { storageService.setPin(pin); setSettings(prev => ({ ...prev, pinEnabled: true })); setIsPinVerified(true); }, []);
+  const disablePin = useCallback(() => { storageService.disablePin(); setSettings(prev => ({ ...prev, pinEnabled: false })); setIsPinVerified(false); }, []);
   const requestNotificationPermission = useCallback(async (): Promise<boolean> => { const granted = await notificationService.requestPermission(); setNotificationsEnabled(granted); return granted; }, []);
   const startScanning = useCallback(() => { setIsScanning(true); }, []);
   const stopScanning = useCallback(() => { setIsScanning(false); }, []);

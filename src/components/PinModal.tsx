@@ -10,9 +10,9 @@ export function PinModal({ isOpen, onClose, mode }: PinModalProps) {
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (mode === 'enter') {
-      if (verifyPin(pin)) { onClose(); setPinInput(''); }
+      if (await verifyPin(pin)) { onClose(); setPinInput(''); }
       else { setError('Incorrect PIN'); setPinInput(''); }
     } else {
       if (pin.length < 4) { setError('PIN must be at least 4 digits'); return; }
