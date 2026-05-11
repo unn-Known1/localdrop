@@ -1,5 +1,8 @@
 // IndexedDB Storage Service for persistent device memory and settings
 
+import { hashPin as secureHashPin, verifyPin as secureVerifyPin } from './crypto';
+import { STORAGE_KEYS } from '../config/limits';
+
 const DB_NAME = 'LocalDropDB';
 const DB_VERSION = 1;
 
@@ -32,6 +35,7 @@ export interface TransferRecord {
 export interface AppSettings {
   pinEnabled: boolean;
   pinHash: string;
+  pinSalt: string;
   autoAccept: boolean;
   theme: 'dark' | 'light' | 'system';
   defaultQuality: 'original' | 'high' | 'medium' | 'low';
@@ -408,29 +412,37 @@ class StorageService {
     });
   }
 
-  // PIN security: Hash and verify PIN using Web Crypto API
-  private async hashPin(pin: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(pin);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  }
+  // PIN security: Hash and verify PIN using PBKDF2 via crypto service
+  async verifyPin(pin: string): Promise<boolean> {
+    if (!await this.getSetting<boolean>('pinEnabled', false)) {
+      return true;
+    }
 
-  async verifyPin(pin: string, storedHash: string): Promise<boolean> {
-    const hash = await this.hashPin(pin);
-    return hash === storedHash;
+    const storedHash = await this.getSetting<string>(STORAGE_KEYS.PIN_HASH, '');
+    const storedSalt = await this.getSetting<string>(STORAGE_KEYS.PIN_SALT, '');
+
+    if (!storedHash || !storedSalt) {
+      return false;
+    }
+
+    return secureVerifyPin(pin, storedHash, storedSalt);
   }
 
   async setPin(pin: string): Promise<void> {
-    const hash = await this.hashPin(pin);
-    await this.saveSetting('pinHash', hash);
-    await this.saveSetting('pinEnabled', true);
+    const { hash, salt } = await secureHashPin(pin);
+    await this.saveSetting(STORAGE_KEYS.PIN_HASH, hash);
+    await this.saveSetting(STORAGE_KEYS.PIN_SALT, salt);
+    await this.saveSetting(STORAGE_KEYS.PIN_ENABLED, true);
   }
 
   async disablePin(): Promise<void> {
-    await this.saveSetting('pinHash', '');
-    await this.saveSetting('pinEnabled', false);
+    await this.saveSetting(STORAGE_KEYS.PIN_HASH, '');
+    await this.saveSetting(STORAGE_KEYS.PIN_SALT, '');
+    await this.saveSetting(STORAGE_KEYS.PIN_ENABLED, false);
+  }
+
+  async isPinSet(): Promise<boolean> {
+    return await this.getSetting<boolean>(STORAGE_KEYS.PIN_ENABLED, false);
   }
 }
 
