@@ -1,117 +1,51 @@
-# 🚀 LocalDrop - Secure P2P File Transfer
+# 📦 LocalDrop — P2P File Transfer Over Your Local Network
 
-<p align="center">
-  <strong>Fast, private, peer-to-peer file sharing directly between devices. No cloud, no tracking, just your local network.</strong>
-</p>
+Send files between devices on the same network — **instantly, privately, and without a server**.
 
-<p align="center">
-  <a href="https://github.com/unn-Known1/localdrop/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/unn-Known1/localdrop?style=flat-square" alt="License">
-  </a>
-  <a href="https://github.com/unn-Known1/localdrop/pulls">
-    <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs Welcome">
-  </a>
-  <a href="https://github.com/unn-Known1/localdrop/stargazers">
-    <img src="https://img.shields.io/github/stars/unn-Known1/localdrop?style=flat-square" alt="Stars">
-  </a>
-  <a href="https://github.com/unn-Known1/localdrop/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/unn-Known1/localdrop/ci.yml?style=flat-square" alt="CI Status">
-  </a>
-</p>
+![WebRTC](https://img.shields.io/badge/WebRTC-P2P-blue?style=for-the-badge)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=for-the-badge)
+![Privacy](https://img.shields.io/badge/Privacy-Serverless-green?style=for-the-badge)
 
----
+## ✨ Features
 
-LocalDrop is a modern, high-performance web application designed for secure and instant file sharing between devices on the same network. Built with **WebRTC**, it establishes direct device-to-device connections, ensuring your data never touches the cloud.
-
-[Live Demo](https://unn-known1.github.io/localdrop/)
-
-## ✨ Key Features
-
-- 🔒 **Privacy First**: Direct P2P transfers using WebRTC DataChannels. Your files are never stored on any server.
-- 🚀 **Blazing Fast**: Transfers at the maximum speed of your local network (WiFi/Ethernet).
-- 📂 **Folder Support**: Seamlessly transfer entire directory structures while preserving folder hierarchy.
-- 📡 **Multi-Device Broadcast**: Send files to multiple connected devices simultaneously with one click.
-- ⏯️ **Resumable Transfers**: Intelligent chunk-based system that can resume large file transfers if interrupted.
-- 📱 **Cross-Platform**: Works perfectly on iOS, Android, Windows, macOS, and Linux via any modern browser.
-- 🛠️ **No Setup Required**: No apps to install. Just open the URL and start sharing.
-- 🛡️ **Secure Access**: Optional **PBKDF2-hardened PIN protection** to control who can access the app on your device.
-- 🖼️ **Image Optimization**: Built-in compression and HEIC to JPEG conversion for faster sharing of mobile photos.
-
-## 🛠️ Tech Stack
-
-- **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
-- **P2P Communication**: WebRTC (DataChannels)
-- **Signaling**: WebSocket Bridge + BroadcastChannel API
-- **Reliability**: Integrated STUN/TURN servers for NAT traversal
-- **Security**: Web Crypto API (PBKDF2, SHA-256)
-- **Storage**: IndexedDB for transfer history and settings
-- **CI/CD**: GitHub Actions for automated verification
+- **⚡ Blazing fast** — local network speeds, no upload/download caps
+- **🔒 Fully private** — WebRTC data channel, files never touch a server
+- **🌐 Works everywhere** — browser on any device, no app install needed
+- **📱 QR code sharing** — scan to connect instantly, no typing IPs
+- **🎯 No sign-up** — just open the page and share
 
 ## 🚀 Quick Start
 
-### 🪄 One-Liner Install & Launch
-Run this in your terminal to clone, install, and launch everything in one go:
 ```bash
-curl -sSL https://raw.githubusercontent.com/unn-Known1/localdrop/main/install.sh | bash
-```
-
-### ⚡ One-Command Launch (if already cloned)
-Run this in your terminal to automatically install, build, and launch:
-```bash
-./launch.sh
-```
-
-### 1. Open the App
-Simply open LocalDrop in your browser on all devices you want to share between.
-
-### 2. Discover Devices
-Devices on the same network will automatically discover each other via the WebSocket signaling bridge. For faster pairing, use the **QR Code** feature.
-
-### 3. Send Files
-Drag and drop files or folders into the transfer zone, select your target device(s), and hit **Send**.
-
-## 💻 Local Development
-
-```bash
-# Clone the repository
-git clone https://github.com/unn-Known1/localdrop.git
-
-# Install dependencies
+git clone https://github.com/unn-known1/localdrop.git
+cd localdrop
 npm install
-
-# Start the development server
 npm run dev
-
-# Run the test suite
-npm test
-
-# Build for production
-npm run build
 ```
 
-## 🛡️ Security & Privacy
+Open `http://localhost:3000` — share the URL with devices on the same network.
 
-- **End-to-End P2P**: Data is encrypted and sent directly between devices.
-- **Zero Cloud Storage**: No files, metadata, or user info are ever uploaded to a server.
-- **SHA-256 Verification**: Every file is verified with a cryptographic hash after transfer to ensure data integrity.
-- **Sanitized Filenames**: Automatic protection against path traversal and dangerous characters.
+## 🧩 How It Works
 
-## 🤝 Contributing
+1. Open LocalDrop on both devices
+2. Device A shares the session link (QR code or URL)
+3. Device B opens it and connects via WebRTC
+4. Drop files — they transfer directly peer-to-peer
 
-Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+## 🏗️ Stack
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+- **Frontend:** React + TypeScript
+- **Networking:** WebRTC (simple-peer)
+- **Styling:** Tailwind CSS
+- **No backend** — 100% client-side
 
-## 📄 License
+## 💡 Use Cases
 
-Distributed under the MIT License. See `LICENSE` for more information.
+- Send photos/videos to your laptop from your phone
+- Share large files at home without cloud uploads
+- Offline file transfer at meetups/conferences
+- Quick workspace file sharing without USB drives
 
----
+## ⭐ If this helped you, star the repo!
 
-<p align="center">
-  Built with ❤️ for a more private internet.
-</p>
+MIT License — built with 💻 by [Gaurang Patel](https://github.com/unn-known1)
