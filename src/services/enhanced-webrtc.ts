@@ -18,7 +18,6 @@ interface QueuedTransfer {
   deviceId: string;
   priority: number;
   retryCount: number;
-  maxRetries: number;
   fileId?: string;
   relativePath?: string;
 }
@@ -237,7 +236,7 @@ class EnhancedWebRTC {
     try {
       if (data instanceof ArrayBuffer) await this.handleBinaryChunk(data, deviceId);
       else if (typeof data === 'string') { const message = JSON.parse(data); await this.handleControlMessage(message, deviceId); }
-    } catch { console.error('Error handling data message:', error); }
+    } catch (e) { console.error('Error handling data message:', e); }
   }
 
   private async handleControlMessage(message: { type: string; [key: string]: unknown }, deviceId: string) {
