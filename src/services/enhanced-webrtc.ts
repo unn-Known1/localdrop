@@ -58,7 +58,7 @@ class TransferQueueManager {
       const fileId = await sendFileFn(transfer.file, transfer.deviceId, transfer.fileId, transfer.relativePath);
       this.activeTransfers.delete(fileId);
       return fileId;
-    } catch (_error) {
+    } catch {
       this.activeTransfers.delete(transfer.fileId || 'pending');
       if (transfer.retryCount < this.maxRetries) {
         transfer.retryCount++;
@@ -237,7 +237,7 @@ class EnhancedWebRTC {
     try {
       if (data instanceof ArrayBuffer) await this.handleBinaryChunk(data, deviceId);
       else if (typeof data === 'string') { const message = JSON.parse(data); await this.handleControlMessage(message, deviceId); }
-    } catch (_error) { console.error('Error handling data message:', error); }
+    } catch { console.error('Error handling data message:', error); }
   }
 
   private async handleControlMessage(message: { type: string; [key: string]: unknown }, deviceId: string) {
