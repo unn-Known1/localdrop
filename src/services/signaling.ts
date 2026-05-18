@@ -34,14 +34,16 @@ class SignalingService {
   }
 
   private detectNetworkType(): void {
-    const connection = (navigator as Navigator & { connection?: { effectiveType?: string; type?: string } }).connection;
+    const connection = (navigator as Navigator & { connection?: { effectiveType?: string; type?: string; addEventListener?: () => void } }).connection;
     if (connection) {
       this.networkType = connection.effectiveType || connection.type || 'unknown';
       // Listen for network changes
-      connection.addEventListener('change', () => {
-        this.networkType = connection.effectiveType || connection.type || 'unknown';
-        console.log(`Network type changed to: ${this.networkType}`);
-      });
+      if (connection.addEventListener) {
+        connection.addEventListener('change', () => {
+          this.networkType = connection.effectiveType || connection.type || 'unknown';
+          console.log(`Network type changed to: ${this.networkType}`);
+        });
+      }
     }
   }
 
