@@ -12,19 +12,6 @@ export interface TransferState { fileId: string; fileName: string; relativePath?
 export interface PeerConnection { id: string; name: string; type: 'mobile' | 'desktop'; status: 'connecting' | 'connected' | 'disconnected'; connection?: RTCPeerConnection; dataChannel?: RTCDataChannel; signalStrength?: number; }
 export type TransferCallback = { onProgress?: (state: TransferState) => void; onComplete?: (fileId: string, file: File) => void; onError?: (fileId: string, error: string) => void; onVerificationComplete?: (fileId: string, verified: boolean) => void; };
 
-// Connection state validation helper
-enum ConnectionState { NEW = 'new', CONNECTING = 'connecting', CONNECTED = 'connected', DISCONNECTED = 'disconnected', FAILED = 'failed', CLOSED = 'closed' }
-
-function isConnectionReady(connection: RTCPeerConnection): boolean {
-  const state = connection.connectionState || connection.iceConnectionState;
-  return state === 'connected' || state === 'completed';
-}
-
-function isConnectionClosed(connection: RTCPeerConnection): boolean {
-  const state = connection.connectionState || connection.iceConnectionState;
-  return state === 'closed' || state === 'failed' || state === 'disconnected';
-}
-
 // Transfer Queue Management for issue #62
 interface QueuedTransfer {
   file: File;
@@ -34,6 +21,12 @@ interface QueuedTransfer {
   maxRetries: number;
   fileId?: string;
   relativePath?: string;
+}
+
+// Helper to check if connection is closed (for validation)
+function isConnectionClosed(connection: RTCPeerConnection): boolean {
+  const state = connection.connectionState || connection.iceConnectionState;
+  return state === 'closed' || state === 'failed' || state === 'disconnected';
 }
 
 class TransferQueueManager {
@@ -65,7 +58,7 @@ class TransferQueueManager {
       const fileId = await sendFileFn(transfer.file, transfer.deviceId, transfer.fileId, transfer.relativePath);
       this.activeTransfers.delete(fileId);
       return fileId;
-    } catch (error) {
+    } catch (_error) {
       this.activeTransfers.delete(transfer.fileId || 'pending');
       if (transfer.retryCount < this.maxRetries) {
         transfer.retryCount++;
@@ -158,11 +151,11 @@ class EnhancedWebRTC {
   }
 
   // Connection quality monitoring
-  getConnectionQuality(deviceId: string): 'excellent' | 'good' | 'fair' | 'poor' {
+  getConnectionQuality(): 'excellent' | 'good' | 'fair' | 'poor' {
     return this.qualityMonitor.getQuality();
   }
 
-  recordRtt(deviceId: string, rtt: number): void {
+  recordRtt(_deviceId: string, rtt: number): void {
     this.qualityMonitor.addSample(rtt);
   }
   private async* streamFileChunks(file: File, chunkSize: number) {
@@ -244,7 +237,7 @@ class EnhancedWebRTC {
     try {
       if (data instanceof ArrayBuffer) await this.handleBinaryChunk(data, deviceId);
       else if (typeof data === 'string') { const message = JSON.parse(data); await this.handleControlMessage(message, deviceId); }
-    } catch (error) { console.error('Error handling data message:', error); }
+    } catch (_error) { console.error('Error handling data message:', error); }
   }
 
   private async handleControlMessage(message: { type: string; [key: string]: unknown }, deviceId: string) {
