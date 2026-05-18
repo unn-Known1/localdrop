@@ -5,6 +5,7 @@ class SignalingService {
   private localId: string = '';
   private localName: string = '';
   private localType: 'mobile' | 'desktop' = 'desktop';
+  private networkType: string = 'unknown';
   private isRunning: boolean = false;
   private broadcastChannel: BroadcastChannel | null = null;
   private discoveredDevices: Map<string, Device> = new Map();
@@ -25,10 +26,27 @@ class SignalingService {
       this.localId = this.generateId();
       this.localName = this.getDeviceName();
       this.localType = /mobile|iphone|android|ipad/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+      this.detectNetworkType();
     } else {
       this.localId = 'server-' + this.generateId();
       this.localName = 'Server';
     }
+  }
+
+  private detectNetworkType(): void {
+    const connection = (navigator as Navigator & { connection?: { effectiveType?: string; type?: string } }).connection;
+    if (connection) {
+      this.networkType = connection.effectiveType || connection.type || 'unknown';
+      // Listen for network changes
+      connection.addEventListener('change', () => {
+        this.networkType = connection.effectiveType || connection.type || 'unknown';
+        console.log(`Network type changed to: ${this.networkType}`);
+      });
+    }
+  }
+
+  getNetworkType(): string {
+    return this.networkType;
   }
 
   private generateId(): string {
@@ -49,6 +67,21 @@ class SignalingService {
     return 'Device';
   }
 
+  // Generate a randomized channel name based on domain to prevent cross-site tracking
+  private getChannelName(): string {
+    const domain = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
+    // Create a hash of the domain for the channel prefix
+    let hash = 0;
+    for (let i = 0; i < domain.length; i++) {
+      const char = domain.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    // Use absolute value and take first 8 chars for a site-specific channel
+    const domainHash = Math.abs(hash).toString(36).substring(0, 8);
+    return `localdrop-${domainHash}-signaling`;
+  }
+
   start(options?: { onDeviceDiscovered?: (device: Device) => void; onDeviceConnected?: (device: Device) => void; onDeviceDisconnected?: (deviceId: string) => void; onSignalReceived?: (message: SignalMessage) => void; }) {
     if (this.isRunning) return;
     this.initialize();
@@ -56,7 +89,11 @@ class SignalingService {
     this.onDeviceConnected = options?.onDeviceConnected;
     this.onDeviceDisconnected = options?.onDeviceDisconnected;
     this.onSignalReceived = options?.onSignalReceived;
-    try { this.broadcastChannel = new BroadcastChannel('localdrop-signaling'); this.broadcastChannel.onmessage = (event) => { this.handleMessage(event.data); }; } catch { console.warn('BroadcastChannel not supported'); }
+    try {
+      const channelName = this.getChannelName();
+      this.broadcastChannel = new BroadcastChannel(channelName);
+      this.broadcastChannel.onmessage = (event) => { this.handleMessage(event.data); };
+    } catch { console.warn('BroadcastChannel not supported'); }
     wsSignaling.connect((msg) => this.handleMessage(msg));
     this.broadcastPresence();
     this.pingInterval = window.setInterval(() => { this.broadcastPresence(); }, 5000);

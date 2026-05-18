@@ -11,6 +11,115 @@ export interface ChunkProgress { fileId: string; chunkIndex: number; received: b
 export interface TransferState { fileId: string; fileName: string; relativePath?: string; fileSize: number; fileType: string; totalChunks: number; receivedChunks: ChunkProgress[]; status: 'pending' | 'paused' | 'transferring' | 'complete' | 'failed' | 'verifying' | 'cancelled'; progress: number; speed: number; startTime?: number; deviceId: string; direction: 'upload' | 'download'; error?: string; }
 export interface PeerConnection { id: string; name: string; type: 'mobile' | 'desktop'; status: 'connecting' | 'connected' | 'disconnected'; connection?: RTCPeerConnection; dataChannel?: RTCDataChannel; signalStrength?: number; }
 export type TransferCallback = { onProgress?: (state: TransferState) => void; onComplete?: (fileId: string, file: File) => void; onError?: (fileId: string, error: string) => void; onVerificationComplete?: (fileId: string, verified: boolean) => void; };
+
+// Connection state validation helper
+enum ConnectionState { NEW = 'new', CONNECTING = 'connecting', CONNECTED = 'connected', DISCONNECTED = 'disconnected', FAILED = 'failed', CLOSED = 'closed' }
+
+function isConnectionReady(connection: RTCPeerConnection): boolean {
+  const state = connection.connectionState || connection.iceConnectionState;
+  return state === 'connected' || state === 'completed';
+}
+
+function isConnectionClosed(connection: RTCPeerConnection): boolean {
+  const state = connection.connectionState || connection.iceConnectionState;
+  return state === 'closed' || state === 'failed' || state === 'disconnected';
+}
+
+// Transfer Queue Management for issue #62
+interface QueuedTransfer {
+  file: File;
+  deviceId: string;
+  priority: number;
+  retryCount: number;
+  maxRetries: number;
+  fileId?: string;
+  relativePath?: string;
+}
+
+class TransferQueueManager {
+  private queue: QueuedTransfer[] = [];
+  private activeTransfers: Map<string, boolean> = new Map();
+  private maxConcurrent = 1;
+  private maxRetries = 3;
+
+  enqueue(transfer: Omit<QueuedTransfer, 'retryCount'>): void {
+    const queued: QueuedTransfer = { ...transfer, retryCount: 0 };
+    // Insert based on priority (higher priority first)
+    const insertIndex = this.queue.findIndex(t => t.priority < queued.priority);
+    if (insertIndex === -1) {
+      this.queue.push(queued);
+    } else {
+      this.queue.splice(insertIndex, 0, queued);
+    }
+  }
+
+  async processNext(getPeerReady: (deviceId: string) => boolean, sendFileFn: (file: File, deviceId: string, fileId?: string, relativePath?: string) => Promise<string>): Promise<string | null> {
+    if (this.queue.length === 0) return null;
+    const transfer = this.queue[0];
+    if (!getPeerReady(transfer.deviceId)) {
+      return null; // Peer not ready, skip for now
+    }
+    this.queue.shift();
+    this.activeTransfers.set(transfer.fileId || 'pending', true);
+    try {
+      const fileId = await sendFileFn(transfer.file, transfer.deviceId, transfer.fileId, transfer.relativePath);
+      this.activeTransfers.delete(fileId);
+      return fileId;
+    } catch (error) {
+      this.activeTransfers.delete(transfer.fileId || 'pending');
+      if (transfer.retryCount < this.maxRetries) {
+        transfer.retryCount++;
+        // Re-enqueue with same priority after exponential backoff
+        setTimeout(() => {
+          this.queue.unshift(transfer);
+        }, Math.pow(2, transfer.retryCount) * 1000);
+      }
+      return null;
+    }
+  }
+
+  getQueueLength(): number {
+    return this.queue.length;
+  }
+
+  clear(): void {
+    this.queue = [];
+  }
+}
+
+// Connection Quality Monitor for issue #60
+class ConnectionQualityMonitor {
+  private samples: number[] = [];
+  private maxSamples = 10;
+  private lastRtt = 0;
+
+  addSample(rtt: number): void {
+    this.samples.push(rtt);
+    if (this.samples.length > this.maxSamples) {
+      this.samples.shift();
+    }
+    this.lastRtt = rtt;
+  }
+
+  getQuality(): 'excellent' | 'good' | 'fair' | 'poor' {
+    if (this.samples.length === 0) return 'good';
+    const avgRtt = this.samples.reduce((a, b) => a + b, 0) / this.samples.length;
+    if (avgRtt < 50) return 'excellent';
+    if (avgRtt < 150) return 'good';
+    if (avgRtt < 300) return 'fair';
+    return 'poor';
+  }
+
+  getAverageRtt(): number {
+    if (this.samples.length === 0) return this.lastRtt;
+    return this.samples.reduce((a, b) => a + b, 0) / this.samples.length;
+  }
+
+  reset(): void {
+    this.samples = [];
+    this.lastRtt = 0;
+  }
+}
 class EnhancedWebRTC {
   private peers: Map<string, PeerConnection> = new Map();
   private pendingFiles: Map<string, FileInfo> = new Map();
@@ -20,8 +129,42 @@ class EnhancedWebRTC {
   private localId: string = '';
   private localName: string = '';
   private activeReceiveFileId: string | null = null;
+  private transferQueue: TransferQueueManager = new TransferQueueManager();
+  private qualityMonitor: ConnectionQualityMonitor = new ConnectionQualityMonitor();
 
   constructor() { const info = signalingService.getLocalInfo(); this.localId = info.id; this.localName = info.name; }
+
+  // Public methods for queue management
+  queueTransfer(file: File, deviceId: string, priority: number = 1, fileId?: string, relativePath?: string): void {
+    this.transferQueue.enqueue({ file, deviceId, priority, fileId, relativePath });
+  }
+
+  getQueueLength(): number {
+    return this.transferQueue.getQueueLength();
+  }
+
+  clearQueue(): void {
+    this.transferQueue.clear();
+  }
+
+  processNextTransfer(): Promise<string | null> {
+    return this.transferQueue.processNext(
+      (deviceId) => {
+        const peer = this.peers.get(deviceId);
+        return !!peer?.dataChannel && peer.dataChannel.readyState === 'open' && !isConnectionClosed(peer.connection!);
+      },
+      (file, deviceId, fileId, relativePath) => this.sendFile(file, deviceId, fileId, relativePath)
+    );
+  }
+
+  // Connection quality monitoring
+  getConnectionQuality(deviceId: string): 'excellent' | 'good' | 'fair' | 'poor' {
+    return this.qualityMonitor.getQuality();
+  }
+
+  recordRtt(deviceId: string, rtt: number): void {
+    this.qualityMonitor.addSample(rtt);
+  }
   private async* streamFileChunks(file: File, chunkSize: number) {
     const totalChunks = Math.ceil(file.size / chunkSize);
     for (let i = 0; i < totalChunks; i++) {
@@ -50,6 +193,13 @@ class EnhancedWebRTC {
   private async verifyFileHash(fileId: string): Promise<boolean> { const fileInfo = this.pendingFiles.get(fileId); const chunks = this.receivedChunks.get(fileId); if (!fileInfo || !chunks || !fileInfo.hash) return true; const totalLength = chunks.reduce((acc, chunk) => acc + chunk.byteLength, 0); const combined = new Uint8Array(totalLength); let offset = 0; for (const chunk of chunks) { combined.set(new Uint8Array(chunk), offset); offset += chunk.byteLength; } const fileHash = await this.hashChunk(combined.buffer); return fileHash === fileInfo.hash; }
 
   async createPeer(deviceId: string, deviceName: string, deviceType: 'mobile' | 'desktop'): Promise<PeerConnection> {
+    // Validate peer connection state before creating new one
+    const existingPeer = this.peers.get(deviceId);
+    if (existingPeer?.connection && !isConnectionClosed(existingPeer.connection)) {
+      console.warn(`Peer ${deviceId} already exists and is not closed. Reusing existing connection.`);
+      return existingPeer;
+    }
+
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     const peer: PeerConnection = { id: deviceId, name: deviceName, type: deviceType, status: 'connecting', connection: pc };
     this.peers.set(deviceId, peer);
@@ -57,7 +207,10 @@ class EnhancedWebRTC {
     this.setupDataChannel(dataChannel, deviceId);
     peer.dataChannel = dataChannel;
     pc.onicecandidate = (event) => { if (event.candidate) signalingService.sendSignal(deviceId, { type: 'ice-candidate', payload: event.candidate.toJSON() }); };
-    pc.onconnectionstatechange = () => { if (pc.connectionState === 'connected') { peer.status = 'connected'; signalingService.connect(deviceId); } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') { peer.status = 'disconnected'; signalingService.disconnect(deviceId); } };
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') { peer.status = 'connected'; signalingService.connect(deviceId); }
+      else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') { peer.status = 'disconnected'; signalingService.disconnect(deviceId); }
+    };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     signalingService.sendSignal(deviceId, { type: 'offer', payload: pc.localDescription });
@@ -258,6 +411,12 @@ class EnhancedWebRTC {
     }
 
     const peer = this.peers.get(deviceId);
+    if (!peer?.connection) {
+      throw new TransferError('Peer connection not found', 'NOT_CONNECTED');
+    }
+    if (isConnectionClosed(peer.connection)) {
+      throw new TransferError('Peer connection is closed', 'CONNECTION_CLOSED');
+    }
     if (!peer?.dataChannel || peer.dataChannel.readyState !== 'open') {
       throw new TransferError('Peer not connected', 'NOT_CONNECTED');
     }
