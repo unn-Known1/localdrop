@@ -1,6 +1,7 @@
 export type TransferErrorCode =
   | 'FILE_TOO_LARGE'
   | 'NOT_CONNECTED'
+  | 'CONNECTION_CLOSED'
   | 'TRANSFER_FAILED'
   | 'VERIFICATION_FAILED'
   | 'INVALID_FILE'
