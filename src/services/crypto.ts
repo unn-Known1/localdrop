@@ -93,19 +93,14 @@ export async function verifyPin(pin: string, storedHash: string, storedSalt: str
     const computedHash = bufferToHex(derivedBits);
 
     // Constant-time comparison to prevent timing attacks
-    if (computedHash.length !== storedHash.length) {
-      console.log('length mismatch', computedHash.length, storedHash.length);
-      return false;
-    }
-
     let result = 0;
-    for (let i = 0; i < computedHash.length; i++) {
-      result |= computedHash.charCodeAt(i) ^ storedHash.charCodeAt(i);
+    const len = Math.max(computedHash.length, storedHash.length);
+    for (let i = 0; i < len; i++) {
+      const a = i < computedHash.length ? computedHash.charCodeAt(i) : 0;
+      const b = i < storedHash.length ? storedHash.charCodeAt(i) : 0;
+      result |= a ^ b;
     }
 
-    if (result !== 0) {
-      console.log('hash mismatch', computedHash, storedHash);
-    }
     return result === 0;
   } catch (err) {
     console.error('verifyPin error', err);

@@ -10,10 +10,11 @@ LocalDrop uses a multi-layer architecture for device discovery and peer-to-peer 
 ┌─────────────────────────────────────────────────┐
 │              LocalDrop Application              │
 ├─────────────────────────────────────────────────┤
-│  Device Discovery  │  WebRTC P2P Transfer     │
-│  (mDNS + Broadcast) │  (DataChannels)         │
+│  Device Discovery  │  WebRTC P2P Transfer      │
+│  (BroadcastChannel │  (DataChannels)           │
+│   + WebSocket)     │                           │
 ├─────────────────────────────────────────────────┤
-│            Network Layer (TCP/UDP)             │
+│            Network Layer (TCP/UDP)              │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -21,11 +22,11 @@ LocalDrop uses a multi-layer architecture for device discovery and peer-to-peer 
 
 ### Discovery Mechanism
 
-LocalDrop uses two complementary discovery mechanisms:
+LocalDrop uses three complementary discovery mechanisms:
 
-1. **BroadcastChannel API** - Primary discovery within same browser context
-2. **localStorage Events** - Cross-tab discovery fallback
-3. **mDNS/Bonjour** - Network-wide device discovery (via bonjour-h5)
+1. **BroadcastChannel API** — Primary discovery within same browser context
+2. **localStorage Events** — Cross-tab discovery fallback
+3. **WebSocket Signaling** — Network-wide device discovery via signaling server
 
 ### Discovery Message Types
 
@@ -58,7 +59,7 @@ interface DiscoveryPayload {
 
 ### Signaling Flow
 
-Since LocalDrop uses local network P2P, it uses a simplified signaling model:
+LocalDrop uses both local BroadcastChannel and WebSocket for signaling:
 
 ```
 Device A                          Device B
@@ -67,7 +68,7 @@ Device A                          Device B
    │                                 │
    │ ◄─────── pong ─────────────────┤
    │                                 │
-   │ ───── offer (via broadcast) ──►│
+   │ ───── offer ──────────────────►│
    │                                 │
    │ ◄──── answer ──────────────────┤
    │                                 │
@@ -86,18 +87,6 @@ Device A                          Device B
 | `answer` | Answerer → Offerer | SDP answer |
 | `ice-candidate` | Bidirectional | ICE candidates for NAT traversal |
 
-### SDP Exchange
-
-The SDP (Session Description Protocol) is exchanged via the BroadcastChannel, encoded as base64:
-
-```typescript
-// Encoding
-const encodedOffer = btoa(JSON.stringify(offer));
-
-// Decoding
-const offer = JSON.parse(atob(encodedOffer));
-```
-
 ## WebRTC Data Channel
 
 ### Channel Configuration
@@ -114,28 +103,28 @@ Files are transferred in chunks with the following message types:
 
 | Type | Purpose |
 |------|---------|
-| `file-metadata` | File info (name, size, type, chunk count) |
-| `file-chunk` | Binary chunk data |
+| `file-info` | File metadata (name, size, type, chunk count) |
+| Binary chunk | 4-byte index header + chunk data |
 | `file-complete` | Transfer completion signal |
+| `chunk-ack` | Acknowledgment for each chunk |
+| `file-pause` | Pause transfer |
+| `file-resume` | Resume transfer |
+| `file-cancel` | Cancel transfer |
 
 ### Chunk Format
 
-```typescript
-interface FileChunk {
-  type: 'file-chunk';
-  fileId: string;        // Unique transfer ID
-  fileName: string;       // Original filename
-  fileSize: number;      // Total file size in bytes
-  fileType: string;       // MIME type
-  chunkIndex: number;     // Current chunk (0-based)
-  totalChunks: number;   // Total number of chunks
-  data: ArrayBuffer;     // Binary chunk data
-}
+Each binary chunk includes a 4-byte header:
+
+```
+┌──────────────────────┬──────────────────────┐
+│   Chunk Index (4B)   │   Chunk Data (N)     │
+│   Big-endian uint32  │   ArrayBuffer        │
+└──────────────────────┴──────────────────────┘
 ```
 
 ### Chunk Size
 
-Default chunk size: **64 KB** (65,536 bytes)
+Default chunk size: **256 KB** (262,144 bytes)
 
 This size is optimized for:
 - Browser memory constraints
@@ -146,18 +135,28 @@ This size is optimized for:
 
 ### STUN Servers
 
-LocalDrop uses Google's public STUN servers:
+LocalDrop uses a randomized subset of public STUN servers:
 
 ```typescript
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
+const STUN_SERVERS = [
+  'stun:stun.l.google.com:19302',
+  'stun:stun1.l.google.com:19302',
+  'stun:stun2.l.google.com:19302',
+  // ... more servers
 ];
 ```
 
-### NAT Traversal
+### TURN Servers
 
-For local network transfers, ICE typically succeeds immediately since devices are on the same private network. STUN is primarily used as a fallback.
+For networks with symmetric NAT, TURN servers are available as fallback:
+
+```typescript
+{
+  urls: 'turn:openrelay.metered.ca:80',
+  username: 'openrelayproject',
+  credential: 'openrelayproject',
+}
+```
 
 ## Network Ports
 
@@ -165,21 +164,27 @@ For local network transfers, ICE typically succeeds immediately since devices ar
 |------|----------|---------|
 | 5353 | UDP | mDNS/Bonjour discovery |
 | 3478 | UDP | STUN (WebRTC) |
-| 49152-49172 | UDP | WebRTC ICE candidates |
+| 8000-9000 | UDP | WebRTC ICE candidates |
 
 ## Security
 
 ### Data Integrity
 
 - SHA-256 hash verification for transferred files
-- Each chunk is validated during transfer
-- Final file hash is compared to original
+- Final file hash is compared to sender's hash
+- Chunk-level validation via acknowledgments
+
+### PIN Protection
+
+- Optional PIN protection using PBKDF2 hashing
+- 100,000 iterations for key derivation
+- Constant-time hash comparison to prevent timing attacks
 
 ### Privacy
 
 - All transfers are P2P (no server storage)
 - No data leaves local network
-- No authentication required for local use
+- Randomized STUN server selection to prevent fingerprinting
 
 ## Browser APIs Used
 
@@ -189,19 +194,15 @@ For local network transfers, ICE typically succeeds immediately since devices ar
 | WebRTC (RTCPeerConnection) | P2P connections |
 | RTCDataChannel | File transfer |
 | localStorage + storage event | Discovery fallback |
-| IndexedDB | Transfer history storage |
+| IndexedDB | Transfer history and settings |
+| Web Workers | Background chunk processing |
+| crypto.subtle | PIN hashing and file verification |
 
 ## Error Handling
 
 | Error | Handling |
 |-------|----------|
-| Peer not connected | Retry with exponential backoff |
-| Transfer interrupted | Support pause/resume (future) |
-| Browser compatibility | Show compatibility warning |
-
-## Future Enhancements
-
-- TURN server fallback for NAT traversal
-- Encrypted signaling
-- Transfer queue management
-- Bandwidth estimation
+| Peer not connected | Automatic retry with connection timeout |
+| Transfer interrupted | Pause/resume support |
+| Connection failed | ICE restart attempt |
+| WebSocket unavailable | Falls back to local-only discovery |

@@ -5,16 +5,39 @@ import { useDevices } from '../hooks/useDevices';
 interface ReceiveModalProps { isOpen: boolean; onClose: () => void; }
 
 export function ReceiveModal({ isOpen, onClose }: ReceiveModalProps) {
-  const { localId, localName } = useDevices();
+  const { localId, localName, connectToDevice, devices } = useDevices();
   const [mode, setMode] = useState<'show' | 'enter'>('show');
   const [code, setCode] = useState('');
   const [copied, setCopied] = useState(false);
-  const deviceInfo = { id: localId, name: localName, type: /mobile/i.test(navigator?.userAgent || '') ? 'mobile' : 'desktop' };
+  const [connectError, setConnectError] = useState('');
+  const deviceInfo = { id: localId, name: localName, type: /mobile/i.test(navigator?.userAgent || '') ? 'mobile' : 'desktop' as const };
   const shareCode = btoa(JSON.stringify(deviceInfo)).substring(0, 8).toUpperCase();
 
   const handleCopy = async () => {
     try { await navigator.clipboard.writeText(shareCode); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {
       // Ignored
+    }
+  };
+
+  const handleConnect = async () => {
+    setConnectError('');
+    if (code.length < 8) {
+      setConnectError('Enter a valid 8-character code');
+      return;
+    }
+
+    // Try to find the device by matching the code prefix
+    const targetDevice = devices.find(d => d.id.substring(0, 8).toUpperCase() === code);
+    if (!targetDevice) {
+      setConnectError('Device not found. Make sure the device is on the same network.');
+      return;
+    }
+
+    try {
+      await connectToDevice(targetDevice.id);
+      onClose();
+    } catch {
+      setConnectError('Failed to connect. Try again.');
     }
   };
 
@@ -47,8 +70,9 @@ export function ReceiveModal({ isOpen, onClose }: ReceiveModalProps) {
           ) : (
             <div className="flex flex-col items-center">
               <h3 className="text-xl font-semibold text-white mb-2">Enter Sender Code</h3>
-              <input type="text" value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="XXXXXXXX" className="w-full p-4 rounded-2xl bg-[#111827] border border-white/10 text-center font-mono text-2xl tracking-widest" maxLength={8} />
-              <button disabled={code.length < 8} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium disabled:opacity-50">Connect</button>
+              <input type="text" value={code} onChange={(e) => { setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); setConnectError(''); }} placeholder="XXXXXXXX" className="w-full p-4 rounded-2xl bg-[#111827] border border-white/10 text-center font-mono text-2xl tracking-widest" maxLength={8} />
+              {connectError && <p className="text-red-400 text-sm text-center mt-2">{connectError}</p>}
+              <button onClick={handleConnect} disabled={code.length < 8} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium disabled:opacity-50">Connect</button>
             </div>
           )}
         </div>

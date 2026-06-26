@@ -120,11 +120,25 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggleFavoriteDevice = useCallback((id: string) => {
-    setSavedDevices(prev => prev.map(d => d.id === id ? { ...d, isFavorite: !d.isFavorite } : d));
+    setSavedDevices(prev => {
+      const updated = prev.map(d => d.id === id ? { ...d, isFavorite: !d.isFavorite } : d);
+      const device = updated.find(d => d.id === id);
+      if (device) {
+        storageService.saveDevice(device).catch(() => {});
+      }
+      return updated;
+    });
   }, []);
 
   const renameDevice = useCallback((id: string, name: string) => {
-    setSavedDevices(prev => prev.map(d => d.id === id ? { ...d, name } : d));
+    setSavedDevices(prev => {
+      const updated = prev.map(d => d.id === id ? { ...d, nickname: name } : d);
+      const device = updated.find(d => d.id === id);
+      if (device) {
+        storageService.saveDevice(device).catch(() => {});
+      }
+      return updated;
+    });
   }, []);
 
   return (

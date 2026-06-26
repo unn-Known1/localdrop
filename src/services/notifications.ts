@@ -1,4 +1,5 @@
 // Notification Service for Push Notifications and Alerts
+import { formatFileSize } from '../lib/utils';
 
 class NotificationService {
   private permission: NotificationPermission = 'default';
@@ -43,7 +44,7 @@ class NotificationService {
   showIncomingTransfer(deviceName: string, fileName: string, fileSize: number) {
     if (!this.isEnabled()) return;
 
-    const sizeStr = this.formatFileSize(fileSize);
+    const sizeStr = formatFileSize(fileSize);
 
     const notification = new Notification('Incoming File', {
       body: `${deviceName} wants to send "${fileName}" (${sizeStr})`,
@@ -169,15 +170,6 @@ class NotificationService {
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       navigator.vibrate(pattern);
     }
-  }
-
-  // Format file size
-  private formatFileSize(bytes: number): string {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
 }
 

@@ -6,18 +6,8 @@ import {
 import { useTransfers } from '../hooks/useTransfers';
 import { useDevices } from '../hooks/useDevices';
 import { Transfer } from '../types';
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-function formatSpeed(bytesPerSecond: number): string {
-  return formatFileSize(bytesPerSecond) + '/s';
-}
+import { formatFileSize, formatSpeed } from '../lib/utils';
+import { enhancedWebRTC } from '../services/enhanced-webrtc';
 
 interface TransferItemProps {
   transfer: Transfer;
@@ -141,7 +131,7 @@ function TransferItem({ transfer, onPause, onResume, onCancel, onRetry }: Transf
 }
 
 export function TransferQueue() {
-  const { transfers, pauseTransfer, resumeTransfer, cancelTransfer, sendFiles } = useTransfers();
+  const { transfers, pauseTransfer, resumeTransfer, cancelTransfer } = useTransfers();
   const { devices } = useDevices();
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -155,11 +145,23 @@ export function TransferQueue() {
 
   const handleRetry = (transferId: string) => {
     const transfer = transfers.find(t => t.id === transferId);
-    const isDeviceConnected = devices.find(d => d.id === transfer?.deviceId)?.status === 'connected';
-    if (transfer && isDeviceConnected) {
-      cancelTransfer(transferId);
-      sendFiles();
-    }
+    if (!transfer?.deviceId) return;
+    const isDeviceConnected = devices.find(d => d.id === transfer.deviceId)?.status === 'connected';
+    if (!isDeviceConnected) return;
+
+    // Remove the failed transfer
+    cancelTransfer(transferId);
+
+    // Re-add it as a new transfer with same params
+    setTimeout(() => {
+      const selectedDevice = devices.find(d => d.id === transfer.deviceId);
+      if (selectedDevice && selectedDevice.status === 'connected' && transfer.deviceId) {
+        enhancedWebRTC.sendFile(
+          new File([], transfer.fileName, { type: transfer.fileType || 'application/octet-stream' }),
+          transfer.deviceId
+        ).catch(() => {});
+      }
+    }, 100);
   };
 
   if (!hasTransfers) {

@@ -187,53 +187,51 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const transferIdToFileId = new Map<string, string>();
-
     connectedDevices.forEach(device => {
       enhancedWebRTC.registerCallback(device.id, {
         onProgress: (state) => {
-          const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === state.fileId)?.[0];
-          if (transferId) {
-            setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: state.status as Transfer['status'], progress: state.progress, speed: state.speed } : t));
-          }
+          setTransfers(prev => prev.map(t => t.deviceId === device.id && t.fileName === state.fileName
+            ? { ...t, status: state.status as Transfer['status'], progress: state.progress, speed: state.speed }
+            : t));
         },
         onComplete: (fileId, file) => {
-          const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === fileId)?.[0];
-          if (transferId) {
-            setTransfers(prev => {
-              const transfer = prev.find(t => t.id === transferId);
-              if (transfer?.thumbnail) URL.revokeObjectURL(transfer.thumbnail);
-              return prev.map(t => t.id === transferId ? { ...t, status: 'complete', progress: 100, completedAt: Date.now(), thumbnail: undefined } : t);
-            });
-            addToast({ type: 'success', message: `Sent: ${file.name} to ${device.name}` });
-            loadTransferHistory();
-          }
+          setTransfers(prev => {
+            const transfer = prev.find(t => t.id === fileId);
+            if (transfer?.thumbnail) URL.revokeObjectURL(transfer.thumbnail);
+            return prev.map(t => t.id === fileId
+              ? { ...t, status: 'complete', progress: 100, completedAt: Date.now(), thumbnail: undefined }
+              : t);
+          });
+          addToast({ type: 'success', message: `Sent: ${file.name} to ${device.name}` });
+          loadTransferHistory();
+          // Update statistics
+          storageService.getStatistics().then(stats => {
+            storageService.updateStatistics({
+              totalFilesSent: stats.totalFilesSent + 1,
+              totalBytesSent: stats.totalBytesSent + file.size,
+            }).catch(() => {});
+          }).catch(() => {});
         },
         onError: (fileId, error) => {
-          const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === fileId)?.[0];
-          if (transferId) {
-            setTransfers(prev => {
-              const transfer = prev.find(t => t.id === transferId);
-              if (transfer?.thumbnail) URL.revokeObjectURL(transfer.thumbnail);
-              return prev.map(t => t.id === transferId ? { ...t, status: 'failed', error, thumbnail: undefined } : t);
-            });
-          }
+          setTransfers(prev => {
+            const transfer = prev.find(t => t.id === fileId);
+            if (transfer?.thumbnail) URL.revokeObjectURL(transfer.thumbnail);
+            return prev.map(t => t.id === fileId
+              ? { ...t, status: 'failed', error, thumbnail: undefined }
+              : t);
+          });
         },
         onVerificationComplete: (fileId, verified) => {
-          const transferId = [...transferIdToFileId.entries()].find(([, fid]) => fid === fileId)?.[0];
-          if (transferId) {
-            setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, verified } : t));
-          }
+          setTransfers(prev => prev.map(t => t.id === fileId ? { ...t, verified } : t));
         },
       });
     });
 
     for (const selectedFile of selectedFiles) {
       for (const device of connectedDevices) {
-        const transferId = generateSecureId();
-        transferIdToFileId.set(transferId, transferId);
+        const fileId = generateSecureId();
         const transfer: Transfer = {
-          id: transferId, fileName: selectedFile.file.name,
+          id: fileId, fileName: selectedFile.file.name,
           fileSize: selectedFile.size, fileType: selectedFile.type,
           direction: 'upload', status: 'transferring', progress: 0,
           speed: 0, deviceId: device.id, deviceName: device.name,
@@ -241,12 +239,12 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
         };
         setTransfers(prev => [...prev, transfer]);
         try {
-          await enhancedWebRTC.sendFile(selectedFile.file, device.id, transferId, selectedFile.relativePath);
+          await enhancedWebRTC.sendFile(selectedFile.file, device.id, fileId, selectedFile.relativePath);
         } catch {
           setTransfers(prev => {
-            const transfer = prev.find(t => t.id === transferId);
-            if (transfer?.thumbnail) URL.revokeObjectURL(transfer.thumbnail);
-            return prev.map(t => t.id === transferId ? { ...t, status: 'failed', error: 'Transfer failed', thumbnail: undefined } : t);
+            const t = prev.find(tr => tr.id === fileId);
+            if (t?.thumbnail) URL.revokeObjectURL(t.thumbnail);
+            return prev.map(tr => tr.id === fileId ? { ...tr, status: 'failed', error: 'Transfer failed', thumbnail: undefined } : tr);
           });
           addToast({ type: 'error', message: `Failed to send ${selectedFile.file.name} to ${device.name}` });
         }

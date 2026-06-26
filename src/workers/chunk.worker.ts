@@ -55,13 +55,20 @@ self.onmessage = async (e: MessageEvent<ChunkMessage>) => {
       }
 
       case 'hashFile': {
-        const hash = await hashFile(data as File);
+        if (!(data instanceof File)) {
+          throw new Error('hashFile expects a File object');
+        }
+        const hash = await hashFile(data);
         self.postMessage({ type: 'hashFileResult', id, data: hash } as ChunkResponse);
         break;
       }
 
       case 'splitChunks': {
-        const { file, chunkSize } = data as { file: File; chunkSize: number };
+        const chunkData = data as { file: File; chunkSize: number };
+        if (!(chunkData.file instanceof File)) {
+          throw new Error('splitChunks expects a File object');
+        }
+        const { file, chunkSize } = chunkData;
         const totalChunks = Math.ceil(file.size / chunkSize);
         
         for await (const chunkData of splitIntoChunks(file, chunkSize)) {

@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Image, Film, FileText, X, Send, Pause, Play, FolderOpen, Grid3X3, Archive, Maximize2, Eye } from 'lucide-react';
 import { useTransfers } from '../hooks/useTransfers';
 import { useDevices } from '../hooks/useDevices';
 import { useSettings } from '../hooks/useSettings';
+import { formatFileSize } from '../lib/utils';
 
 export function EnhancedTransferZone() {
   const {
@@ -78,10 +79,35 @@ export function EnhancedTransferZone() {
     if (folderInputRef.current) folderInputRef.current.value = '';
   };
 
-  const formatFileSize = (bytes: number): string => { if (bytes === 0) return '0 B'; const k = 1024; const sizes = ['B', 'KB', 'MB', 'GB']; const i = Math.floor(Math.log(bytes) / Math.log(k)); return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]; };
   const getTotalSize = () => selectedFiles.reduce((acc, f) => acc + f.size, 0);
   const getFileIcon = (type: string) => { if (type.startsWith('image/')) return Image; if (type.startsWith('video/')) return Film; return FileText; };
   const activeTransfers = transfers.filter(t => t.status === 'transferring' || t.status === 'paused');
+
+  // Handle clipboard paste
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      const files: { file: File; relativePath?: string }[] = [];
+      for (const item of Array.from(items)) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) files.push({ file });
+        }
+      }
+
+      if (files.length > 0) {
+        e.preventDefault();
+        setIsProcessing(true);
+        await addFiles(files, { compress: enableCompression, quality: compressionQuality });
+        setTimeout(() => setIsProcessing(false), 500);
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [addFiles, enableCompression, compressionQuality]);
 
   return (
     <div className="flex-1 flex flex-col p-4 pt-20">

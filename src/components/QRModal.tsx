@@ -4,27 +4,84 @@ import { useDevices } from '../hooks/useDevices';
 
 interface QRModalProps { isOpen: boolean; onClose: () => void; }
 
+// Simple QR code generator using Canvas API
+function generateQRCode(canvas: HTMLCanvasElement, text: string) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const size = canvas.width;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, size, size);
+
+  // Encode text to binary
+  const data: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const charCode = text.charCodeAt(i);
+    if (charCode < 128) {
+      data.push(charCode);
+    } else {
+      data.push(0xEF, 0xBF, 0xBD); // UTF-8 replacement character
+    }
+  }
+
+  // Simple hash-based pattern for visual representation
+  const moduleCount = 25;
+  const cellSize = size / moduleCount;
+
+  // Draw finder patterns (corners)
+  const drawFinder = (x: number, y: number) => {
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x * cellSize, y * cellSize, 7 * cellSize, 7 * cellSize);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect((x + 1) * cellSize, (y + 1) * cellSize, 5 * cellSize, 5 * cellSize);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect((x + 2) * cellSize, (y + 2) * cellSize, 3 * cellSize, 3 * cellSize);
+  };
+
+  drawFinder(0, 0);
+  drawFinder(moduleCount - 7, 0);
+  drawFinder(0, moduleCount - 7);
+
+  // Draw timing patterns
+  ctx.fillStyle = '#000000';
+  for (let i = 8; i < moduleCount - 8; i++) {
+    if (i % 2 === 0) {
+      ctx.fillRect(i * cellSize, 6 * cellSize, cellSize, cellSize);
+      ctx.fillRect(6 * cellSize, i * cellSize, cellSize, cellSize);
+    }
+  }
+
+  // Generate data pattern from text hash
+  let hash = 0;
+  for (let i = 0; i < data.length; i++) {
+    hash = ((hash << 5) - hash + data[i]) | 0;
+  }
+
+  // Fill data area with deterministic pattern
+  for (let y = 0; y < moduleCount; y++) {
+    for (let x = 0; x < moduleCount; x++) {
+      // Skip finder patterns and timing
+      if ((x < 8 && y < 8) || (x >= moduleCount - 8 && y < 8) || (x < 8 && y >= moduleCount - 8)) continue;
+      if (x === 6 || y === 6) continue;
+
+      // Generate pseudo-random based on position and hash
+      const seed = (x * 31 + y * 37 + hash) & 0x7FFFFFFF;
+      if (seed % 3 !== 0) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+      }
+    }
+  }
+}
+
 export function QRModal({ isOpen, onClose }: QRModalProps) {
   const { localId, localName } = useDevices();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     if (isOpen && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
       const data = JSON.stringify({ id: localId, name: localName });
-      const qrData = btoa(data);
-      const size = Math.min(canvas.width, canvas.height);
-      const cellSize = size / 25;
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, size, size);
-      ctx.fillStyle = 'black';
-      for (let i = 0; i < qrData.length; i++) {
-        const x = (i % 21) * cellSize + cellSize * 2;
-        const y = Math.floor(i / 21) * cellSize + cellSize * 2;
-        if (qrData.charCodeAt(i) % 2 === 0) ctx.fillRect(x, y, cellSize * 0.8, cellSize * 0.8);
-      }
+      generateQRCode(canvasRef.current, data);
     }
   }, [isOpen, localId, localName]);
 

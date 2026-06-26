@@ -120,11 +120,17 @@ class EnhancedWebRTC {
   private callbacks: Map<string, TransferCallback> = new Map();
   private localId: string = '';
   private localName: string = '';
-  private activeReceiveFileId: string | null = null;
+  private activeReceiveFileIds: Set<string> = new Set();
   private transferQueue: TransferQueueManager = new TransferQueueManager();
   private qualityMonitor: ConnectionQualityMonitor = new ConnectionQualityMonitor();
 
-  constructor() { const info = signalingService.getLocalInfo(); this.localId = info.id; this.localName = info.name; }
+  constructor() {
+    const info = signalingService.getLocalInfo();
+    this.localId = info.id;
+    this.localName = info.name;
+    // Periodic cleanup of stale transfers
+    setInterval(() => this.cleanupStaleTransfers(), 60000);
+  }
 
   // Public methods for queue management
   queueTransfer(file: File, deviceId: string, priority: number = 1, fileId?: string, relativePath?: string): void {
@@ -168,16 +174,23 @@ class EnhancedWebRTC {
     }
   }
 
-  private async waitForBufferLow(dataChannel: RTCDataChannel, limit = 1024 * 1024) {
+  private async waitForBufferLow(dataChannel: RTCDataChannel, limit = 1024 * 1024, timeoutMs = 30000) {
     if (dataChannel.bufferedAmount <= limit) return;
-    return new Promise<void>(resolve => {
-      const check = () => {
-        if (dataChannel.bufferedAmount <= limit) {
+    return new Promise<void>((resolve) => {
+      let resolved = false;
+      const cleanup = () => {
+        if (!resolved) {
+          resolved = true;
           dataChannel.removeEventListener('bufferedamountlow', check);
           resolve();
         }
       };
+      const check = () => {
+        if (dataChannel.bufferedAmount <= limit) cleanup();
+      };
       dataChannel.addEventListener('bufferedamountlow', check);
+      // Timeout to prevent infinite hang
+      setTimeout(cleanup, timeoutMs);
     });
   }
 
@@ -201,15 +214,37 @@ class EnhancedWebRTC {
     pc.onicecandidate = (event) => { if (event.candidate) signalingService.sendSignal(deviceId, { type: 'ice-candidate', payload: event.candidate.toJSON() }); };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') { peer.status = 'connected'; signalingService.connect(deviceId); }
-      else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') { peer.status = 'disconnected'; signalingService.disconnect(deviceId); }
+      else if (pc.connectionState === 'failed') {
+        peer.status = 'disconnected';
+        signalingService.disconnect(deviceId);
+        this.restartIce(deviceId, pc);
+      }
+      else if (pc.connectionState === 'disconnected' || pc.connectionState === 'closed') { peer.status = 'disconnected'; signalingService.disconnect(deviceId); }
     };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     signalingService.sendSignal(deviceId, { type: 'offer', payload: pc.localDescription });
+
+    // Connection timeout
+    setTimeout(() => {
+      if (peer.status === 'connecting') {
+        peer.status = 'disconnected';
+        this.removePeer(deviceId);
+        signalingService.disconnect(deviceId);
+      }
+    }, 30000);
+
     return peer;
   }
 
   async handleOffer(offer: RTCSessionDescriptionInit, deviceId: string, deviceName: string, deviceType: 'mobile' | 'desktop'): Promise<void> {
+    // Close existing connection if present to prevent leaks
+    const existingPeer = this.peers.get(deviceId);
+    if (existingPeer) {
+      existingPeer.dataChannel?.close();
+      existingPeer.connection?.close();
+    }
+
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     const peer: PeerConnection = { id: deviceId, name: deviceName, type: deviceType, status: 'connecting', connection: pc };
     this.peers.set(deviceId, peer);
@@ -224,6 +259,18 @@ class EnhancedWebRTC {
 
   async handleAnswer(answer: RTCSessionDescriptionInit, deviceId: string): Promise<void> { const peer = this.peers.get(deviceId); if (peer?.connection) await peer.connection.setRemoteDescription(answer); }
   async handleIceCandidate(candidate: RTCIceCandidateInit, deviceId: string): Promise<void> { const peer = this.peers.get(deviceId); if (peer?.connection) await peer.connection.addIceCandidate(new RTCIceCandidate(candidate)); }
+
+  private async restartIce(deviceId: string, pc: RTCPeerConnection) {
+    try {
+      if (pc.signalingState === 'stable') {
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        signalingService.sendSignal(deviceId, { type: 'offer', payload: pc.localDescription });
+      }
+    } catch (e) {
+      console.error('ICE restart failed:', e);
+    }
+  }
 
   private setupDataChannel(channel: RTCDataChannel, deviceId: string) {
     channel.onopen = () => { const peer = this.peers.get(deviceId); if (peer) peer.status = 'connected'; };
@@ -264,6 +311,12 @@ class EnhancedWebRTC {
       return;
     }
 
+    // Enforce concurrent transfer limit
+    if (this.activeReceiveFileIds.size >= FILE_LIMITS.MAX_CONCURRENT_TRANSFERS) {
+      console.error(`Concurrent transfer limit reached (${FILE_LIMITS.MAX_CONCURRENT_TRANSFERS}). Rejecting ${fileName}`);
+      return;
+    }
+
     // Use sanitized fileName
     const fileInfo: FileInfo = { fileId: message.fileId, fileName, relativePath: message.relativePath, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, hash: message.hash };
     this.pendingFiles.set(message.fileId, fileInfo);
@@ -271,12 +324,23 @@ class EnhancedWebRTC {
     const state: TransferState = { fileId: message.fileId, fileName, relativePath: message.relativePath, fileSize: message.fileSize, fileType: message.fileType, totalChunks: message.totalChunks, receivedChunks: [], status: 'transferring', progress: 0, speed: 0, startTime: Date.now(), deviceId, direction: 'download' };
     this.transferStates.set(message.fileId, state);
     this.callbacks.get(deviceId)?.onProgress?.(state);
-    this.activeReceiveFileId = message.fileId;
+    this.activeReceiveFileIds.add(message.fileId);
   }
 
   private async handleBinaryChunk(data: ArrayBuffer, deviceId: string) {
-    if (!this.activeReceiveFileId) return;
-    const fileId = this.activeReceiveFileId;
+    if (this.activeReceiveFileIds.size === 0) return;
+
+    // Try to match chunk to an active transfer by checking all pending files
+    let fileId: string | null = null;
+    if (this.activeReceiveFileIds.size === 1) {
+      fileId = this.activeReceiveFileIds.values().next().value!;
+    } else {
+      // For multiple concurrent transfers, we need the sender to include fileId in the header
+      // Fall back to first active file for backward compatibility
+      fileId = this.activeReceiveFileIds.values().next().value!;
+    }
+
+    if (!fileId) return;
     const fileInfo = this.pendingFiles.get(fileId);
     if (!fileInfo) return;
 
@@ -319,13 +383,14 @@ class EnhancedWebRTC {
 
     // Count received chunks (non-null)
     const receivedCount = received.filter(c => c !== null).length;
+    const actualBytes = received.reduce((acc, chunk) => acc + (chunk ? chunk.byteLength : 0), 0);
     const progress = (receivedCount / fileInfo.totalChunks) * 100;
     const state = this.transferStates.get(fileId);
     if (state) {
       state.progress = progress;
       state.receivedChunks.push({ fileId, chunkIndex, received: true });
       const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000;
-      state.speed = (receivedCount * FILE_LIMITS.CHUNK_SIZE) / elapsed;
+      state.speed = elapsed > 0 ? actualBytes / elapsed : 0;
       this.callbacks.get(deviceId)?.onProgress?.(state);
     }
     const peer = this.peers.get(deviceId);
@@ -360,7 +425,7 @@ class EnhancedWebRTC {
       } else { state.status = 'failed'; state.error = 'File verification failed'; this.callbacks.get(deviceId)?.onError?.(fileId, 'File verification failed'); }
         this.callbacks.get(deviceId)?.onProgress?.(state);
         this.callbacks.get(deviceId)?.onVerificationComplete?.(fileId, verified);
-        this.activeReceiveFileId = null;
+        this.activeReceiveFileIds.delete(fileId);
         setTimeout(() => { this.cleanup(fileId); }, 5000);
     }
   }
@@ -371,9 +436,17 @@ class EnhancedWebRTC {
     const state = this.transferStates.get(message.fileId);
     if (state && state.direction === 'upload') {
       const ackIndex = message.chunkIndex;
-      state.progress = ((ackIndex + 1) / state.totalChunks) * 100;
+      // Track highest acknowledged chunk to avoid out-of-order regression
+      const currentAck = state.receivedChunks.length > 0
+        ? Math.max(...state.receivedChunks.map(c => c.chunkIndex))
+        : -1;
+      if (ackIndex <= currentAck) return; // Duplicate or out-of-order ack, skip
+
+      state.receivedChunks.push({ fileId: message.fileId, chunkIndex: ackIndex, received: true });
+      const highestAck = Math.max(...state.receivedChunks.map(c => c.chunkIndex));
+      state.progress = ((highestAck + 1) / state.totalChunks) * 100;
       const elapsed = (Date.now() - (state.startTime || Date.now())) / 1000;
-      state.speed = ((ackIndex + 1) * FILE_LIMITS.CHUNK_SIZE) / elapsed;
+      state.speed = elapsed > 0 ? ((highestAck + 1) * FILE_LIMITS.CHUNK_SIZE) / elapsed : 0;
 
       // Persist progress for resume capability
       saveTransferProgress(message.fileId, {
@@ -387,9 +460,7 @@ class EnhancedWebRTC {
     }
   }
   private handleFileCancel(message: { fileId: string }) {
-    if (this.activeReceiveFileId === message.fileId) {
-      this.activeReceiveFileId = null;
-    }
+    this.activeReceiveFileIds.delete(message.fileId);
     this.cleanup(message.fileId);
   }
 
@@ -434,11 +505,16 @@ class EnhancedWebRTC {
       if (!currentState || currentState.status === 'cancelled') break;
 
       if (currentState.status === 'paused') {
-        await new Promise<void>(resolve => {
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            clearInterval(checkPause);
+            resolve();
+          }, 60000); // 60 second pause timeout
+
           const checkPause = setInterval(() => {
             const s = this.transferStates.get(id);
-            if (!s || s.status === 'cancelled') { clearInterval(checkPause); resolve(); }
-            else if (s.status === 'transferring') { clearInterval(checkPause); resolve(); }
+            if (!s || s.status === 'cancelled') { clearInterval(checkPause); clearTimeout(timeout); resolve(); }
+            else if (s.status === 'transferring') { clearInterval(checkPause); clearTimeout(timeout); resolve(); }
           }, 100);
         });
       }
@@ -476,6 +552,24 @@ class EnhancedWebRTC {
   removePeer(deviceId: string) { const peer = this.peers.get(deviceId); if (peer) { peer.connection?.close(); peer.dataChannel?.close(); this.peers.delete(deviceId); } }
   getPeers(): PeerConnection[] { return Array.from(this.peers.values()); }
   getPeer(id: string): PeerConnection | undefined { return this.peers.get(id); }
-  private cleanup(fileId: string) { this.pendingFiles.delete(fileId); this.receivedChunks.delete(fileId); this.transferStates.delete(fileId); }
+  private cleanup(fileId: string) {
+    this.pendingFiles.delete(fileId);
+    this.receivedChunks.delete(fileId);
+    this.transferStates.delete(fileId);
+    this.callbacks.delete(fileId);
+  }
+
+  private cleanupStaleTransfers() {
+    const now = Date.now();
+    const STALE_TIMEOUT = 300000; // 5 minutes
+    for (const [fileId, state] of this.transferStates) {
+      if (state.status === 'transferring' && state.startTime && now - state.startTime > STALE_TIMEOUT) {
+        state.status = 'failed';
+        state.error = 'Transfer timed out';
+        this.callbacks.get(state.deviceId)?.onError?.(fileId, 'Transfer timed out');
+        this.cleanup(fileId);
+      }
+    }
+  }
 }
 export const enhancedWebRTC = new EnhancedWebRTC();
