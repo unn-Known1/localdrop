@@ -4,8 +4,9 @@ import { SECURITY_LIMITS } from '../config/limits';
 /**
  * Converts ArrayBuffer to hex string
  */
-function bufferToHex(buffer: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buffer))
+function bufferToHex(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  return Array.from(bytes)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
 }
@@ -82,7 +83,7 @@ export async function verifyPin(pin: string, storedHash: string, storedSalt: str
     const derivedBits = await crypto.subtle.deriveBits(
       {
         name: 'PBKDF2',
-        salt,
+        salt: salt.buffer as ArrayBuffer,
         iterations: SECURITY_LIMITS.PIN_ITERATIONS,
         hash: 'SHA-256',
       },
